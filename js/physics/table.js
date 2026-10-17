@@ -1,0 +1,296 @@
+/* Fizz Lab — everything that leaves the glass: flying drops and foam, and the
+ * puddles and foam piles they make on the table.
+ *
+ * Frame: the TABLE frame — origin at the cup's pivot corner on the table top,
+ * x right, y up, z toward the viewer. It does not move when the cup tilts.
+ *
+ * FLIGHT. Each particle is a parcel of liquid drops or a clump of foam:
+ *     m·dv/dt = m·g − ½·ρ_air·C_d·πr²·|v|·v,   C_d = 0.47 (sphere)
+ * Liquid flies as ~1.5 mm drops (sheets torn off a rim break up near the
+ * Rayleigh–Plateau size); foam as ~4 mm clumps at the foam's own density, so
+ * air drag matters more for foam.
+ *
+ * PUDDLES. A spill spreads as a viscous gravity current. For a fixed volume V
+ * on a flat surface the radius grows as (Huppert 1982, J. Fluid Mech. 121:43)
+ *     r(t) = 0.894·(ρgV³/3μ)^{1/8}·t^{1/8}
+ * written here as dr/dt = K·V³/r⁷ with K = 0.894⁸·ρg/(24μ), so a puddle that
+ * keeps being fed keeps spreading. It stops where gravity and surface tension
+ * balance — a puddle's maximum thickness (de Gennes, Brochard-Wyart & Quéré,
+ * Capillarity and Wetting Phenomena, §2.3):
+ *     h_eq = 2·l_c·sin(θ_e/2),   l_c = √(σ/ρg)
+ * about 3 mm for water on varnished wood (θ_e ≈ 70°). A small spill stays a
+ * spherical cap. Puddles that touch merge.
+ *
+ * THE TABLE'S EDGE. The table top ends 12 cm behind the glass (its back edge,
+ * where the 3-D view shows the wall beyond). A puddle that spreads to a square
+ * edge pins there — Gibbs' inequality, as at the rim of the glass: the contact
+ * line cannot pass a 90° edge until the liquid's slope there exceeds θ + 90°,
+ * i.e. until the puddle stands h_edge = 2·l_c·sin(α/2) ≈ 3.9 mm thick (the
+ * same limit as Capillary.rimOverfill). A puddle at rest is only ~3.1 mm, so it
+ * stops at the edge and spreads along it; only a spill fed faster than it can
+ * spread piles up past h_edge and runs over, dripping to the floor.
+ * Anything that flies past the edge falls to the floor too.
+ *
+ * FOAM PILES. Foam is a soft solid: surface tension in its films gives it a
+ * yield stress τ_y = 0.51·(σ/R)·(φ_g − 0.635)² (Mason, Bibette & Weitz 1996),
+ * so a heap of it stands up instead of spreading into a film. A yield-stress
+ * heap on a flat table stops where its weight no longer beats τ_y at the base:
+ * ρ_f·g·h·dh/dr = −τ_y, i.e. the "perfectly plastic" profile (Nye 1951, the same
+ * shape as an ice sheet; Coussot 2005, Rheometry of Pastes, §6)
+ *     h(r) = √(2τ_y(r₀ − r)/(ρ_f g)),   V = (8π/15)·h(0)·r₀²
+ * Soda foam (τ_y ~ 1–3 Pa) makes low mounds: 50 ml stands ~1 cm tall, ~11 cm
+ * across. Wetter foam (φ_g < 0.635) has no yield stress and spreads like liquid.
+ * A pile then lives like the head it came from (foam.js): its top bursts at
+ * one bubble diameter per bubble lifetime, faster as it dries (Carrier & Colin),
+ * and its liquid drains out at the bottom (Darcy, foam permeability) into a
+ * puddle under it. Its footprint stays pinned as it shrinks; it just gets lower.
+ */
+(function (Fizz) {
+  'use strict';
+  const { C, U } = Fizz;
+
+  const RHO_AIR = 1.2, CD_SPHERE = 0.47;
+  const DROP_R = 1.5e-3, FOAM_R = 4e-3;
+  const THETA_TABLE = 70 * Math.PI / 180;      // water on varnished wood (estimate, 60–80° typical)
+  const MAX_DROPS = 600, MAX_PUDDLES = 40, MAX_PILES = 30;
+  const PHI_RCP = 0.635, PHI_JAM = 0.36, TAU_WET = 0.08, MAX_RATE = 40;
+  const EDGE = { back: -0.12 };                 // the table's back edge, table-frame z [m]
+  const RUNOFF_TAU = 0.2;                       // how fast an over-thick edge empties over it [s] (estimate)
+  const RHO_AIR_MU = 1.8e-5;                    // air viscosity [Pa·s]
+
+  /** Area of a disc (centre at distance d inside the edge) that lies on the table. */
+  function areaOnTable(r, d) {
+    if (d >= r) return Math.PI * r * r;
+    if (d <= -r) return 0;
+    const beyond = r * r * Math.acos(d / r) - d * Math.sqrt(r * r - d * d);
+    return Math.PI * r * r - beyond;
+  }
+
+  /** Huppert's spreading constant K for dr/dt = K V³ / r⁷. */
+  function huppertK(rho, mu) { return Math.pow(0.894, 8) * rho * C.G / (24 * mu); }
+  /** Maximum puddle thickness [m]. */
+  function puddleHeight(sigma, rho, theta = THETA_TABLE) { return 2 * Math.sqrt(sigma / (rho * C.G)) * Math.sin(theta / 2); }
+  /** Radius of a sessile spherical cap of volume V and contact angle θ (gravity negligible). */
+  function capRadius(V, theta = THETA_TABLE) {
+    const c = Math.cos(theta), s = Math.sin(theta);
+    return Math.cbrt(3 * V * s * s * s / (Math.PI * (2 - 3 * c + c * c * c)));
+  }
+  /** Where spreading stops: a cap when small, a pancake of height h_eq when large. */
+  function restRadius(V, sigma, rho) {
+    return Math.max(capRadius(V), Math.sqrt(V / (Math.PI * puddleHeight(sigma, rho))));
+  }
+  /** Footprint radius and peak height of a yield-stress heap of volume V (Nye profile). */
+  function heapShape(V, tau, rhoF) {
+    const k = Math.sqrt(2 * tau / (rhoF * C.G));             // h = k·√(r₀ − r)
+    const r0 = Math.pow(15 * V / (8 * Math.PI * k), 0.4);
+    return { r: r0, h: k * Math.sqrt(r0) };
+  }
+
+  class Table {
+    constructor() { this.clear(); }
+    clear() { this.drops = []; this.puddles = []; this.piles = []; this.landedV = 0; this.returnedV = 0; this.floorV = 0; this.mistV = 0; }
+
+    get flyingV() { let v = 0; for (const d of this.drops) v += d.V; return v; }
+    get puddleV() { let v = 0; for (const p of this.puddles) v += p.V; return v; }
+    get pileLiquidV() { let v = 0; for (const p of this.piles) v += p.vl; return v; }
+    get pileFoamV() { let v = 0; for (const p of this.piles) v += p.vg + p.vl; return v; }
+
+    /**
+     * Throw a parcel. kind 'liquid' | 'foam'; V liquid volume [m³]; vg gas (foam);
+     * n CO2 [mol]; s soda fraction (1 drink, 0 water); p, v: [x, y, z] position and
+     * velocity; R bubble radius of foam.
+     */
+    launch(kind, V, vg, n, s, p, v, R = 3e-4, opts = null) {
+      if (!(V > 0) && !(vg > 0)) return;
+      if (this.drops.length >= MAX_DROPS) {                     // merge into a parcel in flight
+        if (opts && opts.spray) return;                          // (spray is the first thing to drop)
+        const d = this.drops[(Math.random() * this.drops.length) | 0];
+        d.V += V; d.vg += vg; d.n += n; return;
+      }
+      const d = { kind, V, vg, n, s, R, x: p[0], y: p[1], z: p[2], vx: v[0], vy: v[1], vz: v[2], age: 0 };
+      if (opts) Object.assign(d, opts);                          // rd: drop radius; spray: a burst droplet
+      this.drops.push(d);
+    }
+
+    /** Liquid straight onto the table at (x, z). */
+    deposit(x, z, V, s) {
+      if (!(V > 0)) return;
+      this.landedV += V;
+      let p = null, best = Infinity;
+      for (const q of this.puddles) {
+        const d = Math.hypot(q.x - x, q.z - z);
+        if (d < q.r + 2e-3 && d < best) { best = d; p = q; }
+      }
+      if (!p) {
+        if (this.puddles.length >= MAX_PUDDLES) p = this.puddles.reduce((a, b) => (Math.hypot(a.x - x, a.z - z) < Math.hypot(b.x - x, b.z - z) ? a : b));
+        else { p = { x, z, V: 0, s, r: 0, age: 0 }; this.puddles.push(p); }
+      }
+      const tot = p.V + V;
+      p.x = (p.x * p.V + x * V) / tot; p.z = (p.z * p.V + z * V) / tot;
+      p.s = (p.s * p.V + s * V) / tot;
+      p.V = tot;
+      if (p.r <= 0) p.r = capRadius(Math.max(p.V, 1e-9));
+    }
+
+    /** Foam onto the table at (x, z): joins the pile it lands on, or starts one. */
+    depositFoam(x, z, vg, vl, R, s) {
+      if (!(vg > 0)) { this.deposit(x, z, vl, s); return; }
+      let p = null;
+      for (const q of this.piles) if (Math.hypot(q.x - x, q.z - z) < q.r) { p = q; break; }
+      if (!p) {
+        if (this.piles.length >= MAX_PILES) p = this.piles.reduce((a, b) => (Math.hypot(a.x - x, a.z - z) < Math.hypot(b.x - x, b.z - z) ? a : b));
+        else { p = { x, z, vg: 0, vl: 0, R, s, r: 0, h: 0, age: 0 }; this.piles.push(p); }
+      }
+      const V0 = p.vg + p.vl, V1 = vg + vl;
+      p.x = (p.x * V0 + x * V1) / (V0 + V1); p.z = (p.z * V0 + z * V1) / (V0 + V1);
+      p.R = (p.R * p.vg + R * vg) / (p.vg + vg);
+      if (p.vl + vl > 0) p.s = (p.s * p.vl + s * vl) / (p.vl + vl);
+      p.vg += vg; p.vl += vl;
+    }
+
+    /** Shape of a pile from its volume and yield stress (footprint pinned once spread). */
+    _shape(p, fl) {
+      const V = p.vg + p.vl, phi = p.vl / Math.max(V, 1e-15);
+      const tau = Fizz.Capillary.foamYieldStress(fl.sigma, p.R, phi);
+      const rhoF = Math.max(phi, 0.01) * fl.rho;
+      let r, h;
+      if (tau > 0.02) ({ r, h } = heapShape(V, tau, rhoF));
+      else { r = Math.sqrt(V / (Math.PI * puddleHeight(fl.sigma, fl.rho))); h = V / (Math.PI * r * r); }  // wet: flows like liquid
+      p.tau = tau;
+      p.r = Math.max(p.r, r);
+      // pinned at its widest: a shrinking heap just gets lower (V = 8π/15·h·r²)
+      p.h = Math.min(h, 15 * V / (8 * Math.PI * p.r * p.r));
+    }
+
+    /**
+     * ctx = { fl (spreading liquid), bev (foam constants), catchCup(x, y, z) → true if the
+     *         point is inside the cup's mouth (the parcel falls back in), hitsCup(x, y, z) →
+     *         true if it is inside the cup's body, fragility(s) }
+     * Returns parcels that fell back into the cup.
+     */
+    step(dt, ctx) {
+      const back = [];
+      const fl = ctx.fl;
+      const keep = [];
+      for (const d of this.drops) {
+        d.age += dt;
+        // air drag on a representative drop / clump, C_d from Schiller–Naumann
+        // (tiny spray droplets are Stokes-like and stop within centimetres)
+        const r = d.rd || (d.kind === 'foam' ? FOAM_R : DROP_R);
+        const rho = d.kind === 'foam' ? fl.rho * U.clamp(d.V / Math.max(d.V + d.vg, 1e-15), 0.03, 1) : fl.rho;
+        const m = rho * 4 / 3 * Math.PI * r * r * r;
+        const sub = d.rd && d.rd < 2e-4 ? 4 : 1;                 // small drops need finer steps
+        for (let k = 0; k < sub; k++) {
+          const h = dt / sub, sp = Math.hypot(d.vx, d.vy, d.vz);
+          const Re = Math.max(RHO_AIR * sp * 2 * r / RHO_AIR_MU, 1e-6);
+          const Cd = Re < 1000 ? 24 / Re * (1 + 0.15 * Math.pow(Re, 0.687)) : CD_SPHERE;
+          const kd = 0.5 * RHO_AIR * Cd * Math.PI * r * r / m;
+          // implicit in the drag so tiny drops stay stable
+          d.vx /= 1 + kd * sp * h; d.vz /= 1 + kd * sp * h;
+          d.vy = (d.vy - C.G * h) / (1 + kd * sp * h);
+          d.x += d.vx * h; d.y += d.vy * h; d.z += d.vz * h;
+        }
+        if (d.z < EDGE.back && d.y <= 0) { this.floorV += d.V; continue; }   // past the back edge: to the floor
+        if (d.vy < 0 && ctx.catchCup(d.x, d.y, d.z)) { back.push(d); this.returnedV += d.V; continue; }
+        // lands on the table, a foam pile, or the outside of the glass
+        const pile = d.vy < 0 ? this.piles.find(q => { const rr = Math.hypot(d.x - q.x, d.z - q.z); return rr < q.r && d.y <= q.h * Math.sqrt(Math.max(0, 1 - rr / q.r)); }) : null;
+        if (d.y <= 0 || pile || ctx.hitsCup(d.x, d.y, d.z) || d.age > 10) {
+          if (d.spray && !pile && !this.puddles.some(q => Math.hypot(q.x - d.x, q.z - d.z) < q.r)) {
+            this.mistV += d.V;                                     // fizz mist beads on the bare table as a fine dew
+            continue;
+          }
+          if (d.kind === 'foam') { this.depositFoam(d.x, d.z, d.vg, d.V, d.R, d.s); this.landedV += d.V; }
+          else if (pile) { pile.vl += d.V; this.landedV += d.V; }         // soaks into the heap
+          else this.deposit(d.x, d.z, d.V, d.s);
+          continue;
+        }
+        keep.push(d);
+      }
+      this.drops = keep;
+
+      // spreading (Huppert), capped at the resting radius; the back edge cuts the
+      // wetted area, so a puddle against it spreads further along it
+      const K = huppertK(fl.rho, fl.mu);
+      const hEq = puddleHeight(fl.sigma, fl.rho);
+      const hEdge = Fizz.Capillary.rimOverfill(fl, THETA_TABLE * 180 / Math.PI);
+      for (const p of this.puddles) {
+        p.age += dt;
+        const d = p.z - EDGE.back;
+        let rRest = restRadius(Math.max(p.V, 1e-12), fl.sigma, fl.rho);
+        if (d < rRest) {                                        // solve V = h_eq·A_wet(r) for r
+          let lo = rRest, hi = Math.max(1, rRest * 4);
+          for (let it = 0; it < 30; it++) { const mid = 0.5 * (lo + hi); if (hEq * areaOnTable(mid, d) < p.V) lo = mid; else hi = mid; }
+          rRest = hi;
+        }
+        if (p.r < rRest) {
+          // integrate dr/dt = K V³ / r⁷ exactly over dt: r⁸ grows by 8 K V³ dt
+          const r8 = Math.pow(Math.max(p.r, 1e-4), 8) + 8 * K * p.V * p.V * p.V * dt;
+          p.r = Math.min(rRest, Math.pow(r8, 1 / 8));
+        }
+        p.wet = areaOnTable(p.r, d);
+        p.h = p.V / Math.max(p.wet, 1e-9);
+        p.atEdge = d < p.r;
+        // pinned at the edge until it stands thicker than h_edge; then it runs over
+        if (p.atEdge && p.h > hEdge) {
+          const dV = (p.V - hEdge * p.wet) * (1 - Math.exp(-dt / RUNOFF_TAU));
+          p.V -= dV; this.floorV += dV; this.landedV -= dV;
+          p.runoff = (p.runoff || 0) * Math.exp(-dt / 0.5) + dV / dt * (dt / 0.5);
+        } else if (p.runoff) p.runoff *= Math.exp(-dt / 0.5);
+      }
+      this._merge(this.puddles, (a, b) => {
+        const V = a.V + b.V;
+        a.x = (a.x * a.V + b.x * b.V) / V; a.z = (a.z * a.V + b.z * b.V) / V;
+        a.s = (a.s * a.V + b.s * b.V) / V;
+        a.r = Math.sqrt(a.r * a.r + b.r * b.r);                   // keeps the area of both, spreads on from there
+        a.V = V;
+      });
+
+      // foam piles: burst at the top, drain at the bottom (as the head does, foam.js)
+      const bev = ctx.bev;
+      for (const p of this.piles) {
+        p.age += dt;
+        const V = p.vg + p.vl, phi = p.vl / Math.max(V, 1e-15);
+        const area = Math.PI * p.r * p.r;
+        // (d) bursting: one bubble diameter per bubble lifetime, faster once dried below φc
+        const severity = Math.exp(Math.min(3 * (bev.criticalPhi / Math.max(phi, 1e-5) - 1), 20));
+        const kBurst = Math.min(MAX_RATE, bev.burstRate * severity * (ctx.fragility ? ctx.fragility(p.s) : 1));
+        p.vg = Math.max(0, p.vg - kBurst * 2 * p.R * area * 0.5 * dt);   // the mound's top ≈ half its footprint
+        // (e) drainage: Darcy through the Plateau borders (rigid/mobile blend) plus excess wet liquid
+        const pe = Math.min(phi, PHI_JAM), D2 = 4 * p.R * p.R;
+        const perm = (1 - bev.mobility) * 8.0e-4 * D2 * pe * pe + bev.mobility * 6.7e-4 * D2 * Math.pow(pe, 1.5);
+        let q = perm * fl.rho * C.G / fl.mu * area * dt;
+        const vlJam = p.vg * PHI_JAM / (1 - PHI_JAM);
+        if (p.vl > vlJam) q += (p.vl - vlJam) * (1 - Math.exp(-dt / TAU_WET));
+        q = Math.min(q, 0.9 * p.vl);
+        if (q > 0) { p.vl -= q; this.deposit(p.x, p.z, q, p.s); this.landedV -= q; }
+        if (p.vg < 1e-9) { if (p.vl > 0) { this.deposit(p.x, p.z, p.vl, p.s); this.landedV -= p.vl; } p.vl = 0; p.dead = true; continue; }
+        this._shape(p, fl);
+      }
+      this.piles = this.piles.filter(p => !p.dead);
+      this._merge(this.piles, (a, b) => {
+        const Va = a.vg + a.vl, Vb = b.vg + b.vl;
+        a.x = (a.x * Va + b.x * Vb) / (Va + Vb); a.z = (a.z * Va + b.z * Vb) / (Va + Vb);
+        a.R = (a.R * a.vg + b.R * b.vg) / Math.max(a.vg + b.vg, 1e-15);
+        a.s = (a.s * a.vl + b.s * b.vl) / Math.max(a.vl + b.vl, 1e-15);
+        a.vg += b.vg; a.vl += b.vl;
+        a.r = Math.max(a.r, b.r);
+        this._shape(a, fl);
+      });
+      return back;
+    }
+
+    /** Merge any two items whose footprints overlap. */
+    _merge(list, join) {
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          const a = list[i], b = list[j];
+          if (Math.hypot(a.x - b.x, a.z - b.z) >= a.r + b.r) continue;
+          join(a, b);
+          list.splice(j--, 1);
+        }
+      }
+    }
+  }
+
+  Fizz.Table = { Table, huppertK, puddleHeight, capRadius, restRadius, heapShape, areaOnTable, THETA_TABLE, EDGE };
+})(window.Fizz = window.Fizz || {});

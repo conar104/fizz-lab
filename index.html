@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fizz Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="mode-play">
+  <header class="top">
+    <h1>FIZZ<span>LAB</span></h1>
+    <p class="tag">a pouring game with real fizz physics</p>
+    <div class="modes" role="tablist" aria-label="Mode">
+      <button id="mode-play" class="on" title="The game: pour the perfect drink">▶ PLAY</button>
+      <button id="mode-lab" title="The physics lab: every control, chart and readout">⚗ LAB</button>
+    </div>
+    <div class="clock" id="clock">t = 0.0 s</div>
+  </header>
+
+  <main class="layout">
+    <section class="stage">
+      <div class="screen">
+        <canvas id="view" width="320" height="300"></canvas>
+        <div id="banner" class="banner" hidden>
+          <h2 id="banner-title"></h2>
+          <p id="banner-text"></p>
+          <div class="banner-actions">
+            <button id="banner-action" hidden></button>
+            <button id="banner-close">OK</button>
+          </div>
+        </div>
+        <div id="hud" class="hud lab-only"></div>
+        <div id="ghud" class="ghud play-only"></div>
+        <div class="quickbar" role="toolbar" aria-label="Quick actions">
+          <button id="q-reset" title="Reset (R)">↺ RESET</button>
+          <button id="q-upright" title="Stand the glass up (U)">⊥ UPRIGHT</button>
+          <button id="q-clean" title="Clean the table (C)">✕ CLEAN</button>
+          <button id="q-stop" title="Stop pouring and stirring (Esc)">■ STOP</button>
+          <button id="q-help" title="Keyboard shortcuts (?)">?</button>
+        </div>
+        <div id="help" class="help" hidden>
+          <h2>SHORTCUTS</h2>
+          <dl>
+            <dt>SPACE</dt><dd>hold to pour (tip the bottle)</dd>
+            <dt>A</dt><dd>auto-pour the set amount (again to stop)</dd>
+            <dt>← →</dt><dd>tilt the glass 5° (or drag it; flick it hard to throw)</dd>
+            <dt>U · double-click</dt><dd>stand the glass up</dd>
+            <dt>I · M · S</dt><dd>drop ice · drop a Mentos · stir on/off</dd>
+            <dt>R</dt><dd>reset: empty glass, clean table, full bottle</dd>
+            <dt>C</dt><dd>clean the table only</dd>
+            <dt>Esc</dt><dd>stop pouring and stirring</dd>
+            <dt>P · [ ]</dt><dd>pause · slower / faster</dd>
+            <dt>V · H</dt><dd>3-D / section view · HUD on/off</dd>
+            <dt>?</dt><dd>this card</dd>
+          </dl>
+          <p>Your setup is remembered between visits. DEFAULTS puts it all back.</p>
+          <div class="banner-actions"><button id="help-close">OK</button></div>
+        </div>
+        <div id="toasts" class="toasts"></div>
+      </div>
+
+      <div class="actions">
+        <div class="group">
+          <span class="glabel">POUR</span>
+          <button id="btn-pour" class="big pour" title="Tips the bottle further while held (at the Tilt speed); let go and your hand rights it">HOLD <kbd>SPACE</kbd></button>
+          <button id="btn-auto" class="big toggle" aria-pressed="false" title="Click to start pouring the set amount; click again to stop">
+            <span id="auto-label">AUTO 330 ml</span> <kbd>A</kbd><i class="prog" id="auto-prog"></i></button>
+        </div>
+        <div class="group">
+          <span class="glabel">ADD</span>
+          <button id="btn-ice" title="Drop one ice cube in now">ICE <kbd>I</kbd></button>
+          <button id="btn-mentos" title="Drop a Mentos in">MENTOS <kbd>M</kbd></button>
+          <button id="btn-salt" title="Sprinkle a pinch of salt">SALT</button>
+          <button id="btn-stir" class="toggle" aria-pressed="false" title="Click to start stirring; click again to stop">STIR <kbd>S</kbd></button>
+        </div>
+        <div class="group">
+          <span class="glabel">GLASS</span>
+          <button id="btn-upright" title="Stand the glass back up (or double-click it)">UPRIGHT <kbd>U</kbd></button>
+          <button id="btn-clean" title="Wipe the table: puddles, foam, spilled ice. The glass is left as it is.">CLEAN TABLE <kbd>C</kbd></button>
+          <button id="btn-reset" class="reset" title="Empty the glass, clean the table, refill the bottle — same setup">RESET <kbd>R</kbd></button>
+          <button id="btn-defaults" title="Put every setting back to the defaults and start over">DEFAULTS</button>
+          <button id="btn-serve" class="serve" hidden>SERVE!</button>
+        </div>
+      </div>
+
+      <div class="timebar">
+        <span>SPEED</span>
+        <div id="speeds" class="seg"></div>
+        <button id="btn-pause" class="toggle">PAUSE <kbd>P</kbd></button>
+        <button id="btn-hud" class="toggle on" aria-pressed="true">HUD <kbd>H</kbd></button>
+        <button id="btn-view" title="Switch between the 3-D view and the flat cross-section">3D <kbd>V</kbd></button>
+      </div>
+
+      <section class="instruments lab-only" aria-label="Instruments">
+        <div id="keystats" class="keystats"></div>
+        <div class="charts">
+          <figure>
+            <figcaption class="chart-title">IN THE GLASS <span>height, mm</span></figcaption>
+            <canvas id="chart-height"></canvas>
+            <div class="legend" id="legend-height"></div>
+          </figure>
+          <figure>
+            <figcaption class="chart-title">CO₂ IN THE DRINK <span>g/L</span></figcaption>
+            <canvas id="chart-co2"></canvas>
+            <div class="legend" id="legend-co2"></div>
+          </figure>
+          <figure>
+            <figcaption class="chart-title">TEMPERATURE <span>°C</span></figcaption>
+            <canvas id="chart-temp"></canvas>
+            <div class="legend" id="legend-temp"></div>
+          </figure>
+        </div>
+        <details class="allnums">
+          <summary>ALL THE NUMBERS <span>every readout, with the formula behind it (hover a row)</span></summary>
+          <div id="readouts" class="readouts"></div>
+        </details>
+      </section>
+    </section>
+
+    <aside class="panel">
+      <nav class="tabs lab-only" id="tabs">
+        <button data-tab="setup" class="on">DRINK &amp; GLASS</button>
+        <button data-tab="experiments">EXPERIMENTS</button>
+        <button data-tab="model">HOW IT WORKS</button>
+      </nav>
+      <p class="tab-desc lab-only" id="tab-desc"></p>
+
+      <div class="tab" id="tab-setup">
+        <p class="hint">Changing the drink or the glass starts a fresh glass. Everything marked ⚡, and ice, Mentos, salt and the spoon, act live on the glass you have. Hover any setting for the physics behind it.</p>
+        <div id="controls"></div>
+      </div>
+
+      <div class="tab" id="tab-experiments" hidden>
+        <p class="hint">Each one starts from the default pour, changes one thing and pours it. Watch the charts below the glass and compare.</p>
+        <div id="experiments" class="experiments"></div>
+      </div>
+
+      <div class="tab" id="tab-challenge" hidden>
+        <h3>PERFECT POUR</h3>
+        <p class="hint">Five random drinks, glasses and ice. Fill the <b class="lime">liquid</b> to the blinking line with a 3–15 mm head, then SERVE. Points for accuracy, speed and a good head; spills cost you.</p>
+        <button id="btn-challenge" class="big">START CHALLENGE</button>
+        <p class="best">Best: <span id="best">0</span></p>
+        <h3>HOW TO POUR</h3>
+        <ul class="howto">
+          <li><b>Grab the bottle</b> by its neck to move it, by its body to tip it — you control the flow completely. Scroll to tip it too.</li>
+          <li>Or hold <b>SPACE</b> / HOLD to tip it, or <b>AUTO</b> to pour the set amount.</li>
+          <li><b>Drag the glass</b> (or ← →) to tilt it — pour down the side for less foam.</li>
+          <li>Ice, Mentos, salt and the spoon are in the ADD row. Press <b>?</b> for every key.</li>
+        </ul>
+        <div id="freepour" class="freepour">
+          <h3>FREE POUR</h3>
+          <p class="hint">Pick a drink, a glass and some ice, then pour. (The challenge picks them for you.)</p>
+          <div id="fp-drinks" class="fp-drinks"></div>
+          <div id="fp-glasses" class="fp-chips"></div>
+          <div id="fp-ice" class="fp-chips"></div>
+        </div>
+        <h3>YOUR POUR</h3>
+        <div id="pour-quick" class="pour-quick"></div>
+        <p class="hint">Curious why it foams? Switch to <b>⚗ LAB</b> for every control, chart and the physics behind it.</p>
+        <h3>ACHIEVEMENTS</h3>
+        <ul id="achievements" class="achievements"></ul>
+      </div>
+
+      <div class="tab model" id="tab-model" hidden>
+        <h3>WHAT IS SIMULATED</h3>
+        <p>The 3-D view ray-casts the glass, liquid, foam and every ice cube at its real depth (press V for the flat cut-away section). Bulk liquid is well-mixed (one CO₂ concentration, one temperature); every bubble is tracked as a weighted particle; the head is a stack of foam layers, each with its own gas, liquid and dissolved CO₂.</p>
+        <ol>
+          <li><b>Solubility</b> — Henry's law <code>c_eq = K₀(T)·P</code> with the Weiss (1974) fit <code>ln K₀ = −58.0931 + 90.5069·(100/T) + 22.2940·ln(T/100)</code> mol/(kg·atm), × an estimated Sechenov salting-out for sugar.</li>
+          <li><b>Supersaturation</b> — <code>S = c/c_eq − 1</code>. Altitude lowers <code>P</code>; warmth lowers <code>k_H</code>.</li>
+          <li><b>Critical radius</b> — <code>R* = 2σ / (c/k_H − P_atm − ρgz)</code>: hydrostatic depth suppresses nucleation.</li>
+          <li><b>Homogeneous nucleation</b> — <code>J = J₀·exp(−16πσ³ / 3k_BTΔP²)</code> ≈ 10^(−millions): impossible, so all bubbles are heterogeneous.</li>
+          <li><b>Active sites</b> — <code>N_a = N₀ · (θ/180°) · (1 µm / R*)²</code>: power-law cavity sizes × Bankoff gas-trapping by contact angle θ.</li>
+          <li><b>Detachment</b> — <code>R_d = min(5r_c, ∛(1.5 r_c σ sinθ/ρg), r_c σ sinθ / 3μu)</code>: pinch-off, buoyancy or flow-drag beats contact-line pinning.</li>
+          <li><b>Site frequency</b> — exact integral of <code>dR/dt = (D/R + k_c)·RTΔc/P</code>: <code>t = [R_d/k_c − (D/k_c²)·ln(1 + k_cR_d/D)] / a</code>, with Levich convective <code>k_c</code>.</li>
+          <li><b>Wetting-front entrapment</b> — dry rough surfaces (frosty ice, styrofoam, Mentos) trap <code>V_air = A_new · δ</code> of air as seed bubbles.</li>
+          <li><b>Bubble growth</b> — <code>dn/dt = 4πR²·k_L·(c − k_H·p_CO₂)</code>; radius from <code>(P_L + 2σ/R)·⁴⁄₃πR³ = nRT</code> (Newton solve). Entrained air bubbles start with p_CO₂ = 0.</li>
+          <li><b>Mass transfer</b> — <code>Sh = 2 + 0.6Re^½Sc^⅓</code> (rigid) ↔ <code>2 + 1.13(ReSc)^½</code> (mobile); turbulence adds <code>0.4(εν)^¼Sc^−½</code>.</li>
+          <li><b>Rise</b> — Schiller–Naumann drag between Stokes (24/Re) and Hadamard (16/Re) limits, Tomiyama cap <code>(8/3)Eo/(Eo+4)</code>, plus bubble-swarm drift <code>0.35√(gαH)</code>.</li>
+          <li><b>The pour</b> — free fall <code>v = √(v₀² + 2gh)</code>, necking <code>d = d₀√(v₀/v)</code>; air entrainment (Bin 1993) <code>Q_a/Q = 0.04·Fr^0.28·(h/d₀)^0.4</code>; plume <code>u_c = 5.8·v·d/z</code> (Pope); transit loss through the stream and wall film <code>(area/volume)·4√(Dt/π)</code> (Higbie, Nusselt film); entrainment scaled ×0.35, fitted to Liger-Belair et al. 2010; bubble size cap (Hinze) <code>d_max = 0.725(σ/ρ)^0.6 ε^−0.4</code>.</li>
+          <li><b>Foam</b> — drainage <code>q = k·ρg/μ</code> with measured permeabilities <code>k = 8·10⁻⁴D²φ²</code> (rigid) ↔ <code>6.7·10⁻⁴D²φ^{3/2}</code> (mobile); coarsening <code>d⟨R²⟩/dt = 4σD·He/(P·h)·(1−√(φ/φ*))²</code>; films rupture once drainage dries the foam below a critical liquid fraction: rate <code>∝ exp[3(φc/φ − 1)]</code> (Carrier &amp; Colin); capillary pressure <code>Pc = σ/(R√(φ/0.33))</code> shown as a diagnostic; foam liquid degasses over <code>τ = r_pb²/4D</code>.</li>
+          <li><b>Drinks</b> — each drink's sugar (°Brix) sets viscosity <code>μ/μ_w ≈ e^{0.0287·Bx}</code>, density, heat capacity and Sechenov salting-out of CO₂; its surfactants set σ, bubble-skin mobility and φc. Carbonation levels are sourced (see README).</li>
+          <li><b>Ice cubes</b> — rigid bodies (gravity, buoyancy, drag C_d 1.05, stacking) that float, slide when tilted and overflow onto the table; each melts by its own wetted area: warm to the drink's freezing point, then <code>m = q/L_f</code>; Churchill natural convection with water's 4 °C density maximum; soda below its freezing point freezes onto the ice; meltwater dilutes CO₂ and sugar.</li>
+          <li><b>Hand and slosh</b> — the cup follows your tilt like a critically damped hand; the drink's first mode <code>ω² = (gξ₁/R)·tanh(ξ₁h/R)</code> (Lamb, ~3.5 Hz) chases <code>tan δ = −a_x/(g + a_y)</code>. Liquid over the rim clings below ~0.3 m/s (teapot effect) and is thrown above it.</li>
+          <li><b>Erupting foam</b> — leaves the mouth at u = foam rate / mouth area; flung off when <code>ρ_f·u²</code> beats its yield stress and rim grip, otherwise it oozes down the outside.</li>
+          <li><b>Stream and table</b> — the stream flies as parcels (breaks up after <code>19.5·d·[√We(1+3Oh)]^0.85</code>, Grant &amp; Middleman); puddles spread as <code>r ∝ t^⅛</code> (Huppert) to ~3 mm thick (<code>2·l_c·sin(θ/2)</code>) and merge.</li>
+          <li><b>Spray and spills</b> — bursting bubbles fling jet and film drops centimetres up; foam that overflows faster than a Bingham film can creep down the glass breaks off in clumps; on the table it heaps (yield stress, <code>h² = 2τ_y(r₀ − r)/ρ_f g</code>) and puddles pin at the table's edge until thicker than <code>2·l_c·sin(α/2)</code>.</li>
+          <li><b>Salt, Mentos and ice as bodies</b> — gravity, buoyancy, drag and the swing of the cup (−(α×r − ω²r), Coriolis): a flick throws them out. Salt dissolves at <code>k·A·ρ_w·(m_sat − m)</code> (Ranz–Marshall), faster stirred, stopping at saturation (~6.1 mol/kg); on ice it melts brine and chills the cube.</li>
+          <li><b>Meltwater layer</b> — fresh meltwater floats on sugary or salty soda: no CO₂ (a lid on the fizz), no surfactants (weaker foam), ice in it melts slowly; turbulence mixes it in at <code>u_e = 0.1·u/Ri</code> (Turner).</li>
+          <li><b>Salt and melting</b> — ice melts at the solution's freezing point <code>T_f = −i·K_f·m</code> (NaCl i ≈ 1.87); salt lowers it, so ice melts faster, and salts out CO₂: <code>k_H × 10^(−0.11·[NaCl])</code> (Sechenov; Weisenberger &amp; Schumpe 1996). Dissolving it takes in heat (+3.88 kJ/mol); brine is denser and holds less heat.</li>
+          <li><b>Surface tension at the rim</b> — meniscus <code>l_c√(2(1−sinθ))</code>; liquid pins at the rim up to <code>√2·l_c ≈ 3.9 mm</code> above it (Gibbs); foam domes until its yield stress <code>0.51(σ/R)(φ_g−0.635)²</code> gives way, then creeps down the outside.</li>
+          <li><b>Ice and the pour</b> — the stream cascades through the pile to the liquid: full-drop jet energy, entrainment × <code>2 + 1.5·(cube-heights fallen)</code>, bubbles carried down the gaps; melting releases the ~2.5 % air frozen into the ice; cooling raises solubility ~10 %, a minor brake.</li>
+          <li><b>Stirring</b> — turbulence ε ≈ 5 W/kg, a moving steel spoon surface shedding bubbles at 0.3 m/s, and stroke air entrainment <code>Q ≈ ½·w·u·δ</code>.</li>
+          <li><b>The bottle</b> — flow is not set directly: the liquid surface in the tilted bottle gives the head over the lip, and air must get back in. Smooth: weir flow out, orifice air in, headspace suction balances them. Flooded neck: air only as bubbles rising at <code>0.35√(gd)</code>, capping flow at <code>(πd²/4)·0.35√(gd)</code> ≈ Clanet &amp; Searby's <code>(π/12)√g·d^{5/2}</code> — glug-glug. The jet leaves the lip along the axis and falls ballistically.</li>
+          <li><b>Tilt</b> — the liquid keeps a horizontal surface in the rotated cup: equivalent level <code>z</code> ↔ world height <code>h</code> by cross-section area <code>D·z = A_below(h)</code>; spill at the low rim; surface width ∝ 1/cos θ.</li>
+          <li><b>Heat</b> — lumped soda, cup wall (<code>U = 1/(1/h + t/2k)</code>), ice (sensible heat, then melting at 334 kJ/kg), room air, and fizz cooling of ~20 kJ per mol CO₂ released.</li>
+          <li><b>Ice geometry</b> — cubes pack in layers; the pack rests on the floor until Archimedes buoyancy exceeds its weight, then floats with draft <code>m/ρA</code>.</li>
+        </ol>
+        <p class="hint">Full write-up in README.md. Every formula is classified by its evidence (law / published correlation / calibrated / estimate) in docs/EVIDENCE.md, and checked by <code>node tests/run-all.js</code>.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script src="js/core/util.js"></script>
+  <script src="js/physics/constants.js"></script>
+  <script src="js/physics/properties.js"></script>
+  <script src="js/physics/nucleation.js"></script>
+  <script src="js/physics/jet.js"></script>
+  <script src="js/physics/bubbles.js"></script>
+  <script src="js/physics/foam.js"></script>
+  <script src="js/physics/ice.js"></script>
+  <script src="js/physics/capillary.js"></script>
+  <script src="js/physics/tilt.js"></script>
+  <script src="js/physics/bottle.js"></script>
+  <script src="js/physics/slosh.js"></script>
+  <script src="js/physics/table.js"></script>
+  <script src="js/physics/stream.js"></script>
+  <script src="js/physics/simulation.js"></script>
+  <script src="js/render/renderer.js"></script>
+  <script src="js/render/render3d.js"></script>
+  <script src="js/render/charts.js"></script>
+  <script src="js/ui/controls.js"></script>
+  <script src="js/ui/hud.js"></script>
+  <script src="js/game/game.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
