@@ -85,7 +85,8 @@ section('Bottle outflow');
 {
   const b = new Bottle(Bottle.TYPES.pet500), d = 2 * Bottle.TYPES.pet500.r;
   near('glug ceiling vs Clanet & Searby (π/12)·√g·d^2.5', b.glugLimit(), Math.PI / 12 * Math.sqrt(C.G) * Math.pow(d, 2.5), 0.06, 'Clanet & Searby 2004, J. Fluid Mech. 510');
-  // drain time of an upturned 500 ml bottle (flipped at 300°/s)
+  // drain time of an upturned, opened 500 ml bottle (flipped at 300°/s)
+  b.open(101325);
   const fl = Props.fluid(Props.BEVERAGES.cola, K(4));
   let t = 0;
   while (b.V > 1e-7 && t < 60) { b.step(1 / 240, { holding: true, tiltSpeed: 300 }, fl); t += 1 / 240; }

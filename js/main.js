@@ -295,6 +295,13 @@
   $('btn-ice').onclick = addIce;
   $('btn-mentos').onclick = () => sim.dropMentos();
   $('btn-salt').onclick = () => sim.addSalt();
+  $('btn-cap').onclick = () => sim.toggleCap();
+  sim.on('bottleOpened', (o) => {
+    const bar = (o.dP / 1e5).toFixed(1);
+    if (o.Vb > 5e-6) toast('POP! Gusher!', `It was shaken: ${(o.Vb * 1e6).toFixed(0)} ml of trapped bubbles swelled as ${bar} bar vented, and the soda is suddenly supersaturated.`);
+    else toast('Pssst…', `${bar} bar of CO₂ vented. Unshaken, there is almost nothing for the gas to grow on.`);
+  });
+  sim.on('bottleCapped', () => toast('Cap on', 'The drink will refill the headspace with CO₂ and keep the rest of its fizz. Shake it, then open it…'));
   $('btn-stir').onclick = () => sim.toggleStir();
   const hudBtn = $('btn-hud');
   // one HUD switch for both modes; the window painted behind it goes when it is up
@@ -408,6 +415,9 @@
     if ($('auto-label').textContent !== label) $('auto-label').textContent = label;
     const done = auto ? 1 - (P.target - P.poured) / (amount * 1e-6) : 0;
     $('auto-prog').style.width = `${Math.max(0, Math.min(1, done)) * 100}%`;
+    const capLabel = sim.bottle.sealed ? 'OPEN' : 'CAP';
+    const cb = $('btn-cap');
+    if (cb.firstChild.textContent.trim() !== capLabel) cb.firstChild.textContent = capLabel + ' ';
     const st = sim.additives.stirring;
     $('btn-stir').classList.toggle('on', st);
     $('btn-stir').setAttribute('aria-pressed', st);
@@ -446,6 +456,7 @@
       case 'ArrowLeft': e.preventDefault(); setTilt(sim.params.tilt + 5); break;
       case 'ArrowRight': e.preventDefault(); setTilt(sim.params.tilt - 5); break;
       case 'KeyM': sim.dropMentos(); break;
+      case 'KeyO': sim.toggleCap(); break;
       case 'KeyR': $('btn-reset').click(); break;
       case 'KeyP': togglePause(); break;
       case 'KeyU': upright(); break;

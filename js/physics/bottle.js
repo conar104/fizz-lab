@@ -39,13 +39,28 @@
  * swings that way, so sloshing pulses the pour.
  *
  * SHAKING. A surface driven past ~25° that overturns faster than ~0.15 m/s
- * breaks and traps air as fine bubbles (~50 µm; estimate: entrained gas ∝ the
+ * breaks and traps air as fine bubbles (~20 µm; estimate: entrained gas ∝ the
  * breaking edge's speed). In supersaturated soda each one is a ready-made
  * nucleus: it grows by diffusion of CO2 into it (Epstein–Plesset, Sh = 2),
  *     dV/dt = 4πR·D·(c − c_eq)·RT/P   per bubble,
  * so a cloud of N bubbles grows fast while they are small, and they rise out
  * at their Stokes speed 2ρgR²/9μ (capped at 0.25 m/s), stacking up as foam in
  * the headspace (bursting at the drink's own rate).
+ * THE CAP. A fresh bottle is sealed. All the gas inside — the headspace, the
+ * bubbles in the drink and the foam — is one pool at one pressure, the ideal
+ * gas law  P = n·R·T / (V_head + V_bubbles + V_foam gas),  and the drink trades
+ * CO2 with it until Henry's law holds, c = k_H·P_CO2 (k_L ≈ 2·10⁻⁵ m/s at a
+ * still surface, much faster while sloshing; an estimate). Fresh from the
+ * fridge that is ~2 atm of CO2 over the drink. Shaking a sealed bottle traps
+ * headspace gas as fine bubbles, but at that pressure the drink is not
+ * supersaturated, so they barely grow: they slowly rise back out (wait a minute
+ * and they are gone). Opening drops the pressure to 1 atm at once: the gas
+ * vents (the hiss), every bubble swells by P/P_atm (Boyle), and the drink is
+ * suddenly supersaturated against 1 atm, so the cloud of bubbles a shake left
+ * grows explosively (the growth law below) and the bottle gushes. Unshaken, there
+ * is almost nothing to grow on, so it just hisses. Put the cap back on and the
+ * drink refills the headspace with CO2 (keeping the rest of its fizz).
+ *
  * FOAM IN THE BOTTLE floats on the drink (itself swollen by the bubbles in it)
  * and fills the bottle's shape up to a level surface, found by slicing the
  * bottle exactly as the liquid level is. It leaves only where it stands above
@@ -77,7 +92,8 @@
   const SLOSH_BREAK = 0.45;      // surface steeper than this [rad] breaks and traps air (estimate)
   const ENTRAIN = 0.02;          // air trapped per (surface area × breaking-edge speed) (estimate)
   const BREAK_SPEED = 0.15;      // a wave must hit the wall at least this fast to trap air [m/s] (estimate)
-  const R_TRAPPED = 50e-6;       // radius of the bubbles a breaking wave traps [m] (estimate)
+  const R_TRAPPED = 20e-6;       // radius of the bubbles a breaking wave traps [m] (estimate; shaken soda clouds with 10–50 µm bubbles)
+  const DISSOLVE_TAU = 30;       // a 20 µm trapped bubble dissolves back into a drink at equilibrium in ~this [s] (estimate)
   const D_CO2 = 1.9e-9;          // diffusivity of CO2 in the drink [m²/s]
   const FOAM_PHI = 0.15;         // liquid fraction of the foam they make in the headspace
   const FOAM_EXIT_TAU = 0.2;     // foam standing above the lip flows out within this [s] (estimate)
@@ -131,6 +147,33 @@
       this.lostMol = 0;                     // CO2 the drink has lost to bubbles since it was opened [mol]
       this.spew = null;                     // foam/liquid pushed out of the mouth this step
       this.surfaceAll = 0; this.foamTop = 0; // heights (bottle frame) of the drink with its bubbles, and of the foam on it
+      this.sealed = true; this.freshSeal = true; // a new bottle has its cap on, gas in equilibrium with the drink
+      this.nCO2 = 0; this.nAir = 0;         // the gas pool inside a sealed bottle [mol]
+      this.P = 101325;                      // its pressure [Pa] (atmospheric once open)
+      this.hiss = 0;                        // pressure released by the last opening [Pa]
+      this.opened = null;                   // set when the cap comes off: { dP, Vb } for the game to react to
+    }
+
+    /** Volume the gas pool fills: headspace + bubbles + foam gas [m³]. */
+    gasVolume() { return Math.max(2e-6, this.capacity - this.V - this.foamL); }
+
+    /** Twist the cap off: the gas vents to the room, and everything gassy swells (Boyle). */
+    open(Pamb) {
+      if (!this.sealed) return false;
+      const ratio = Math.max(1, this.P / Pamb);
+      this.hiss = Math.max(0, this.P - Pamb);
+      this.opened = { dP: this.hiss, Vb: this.Vb * ratio };
+      this.Vb *= ratio; this.foamG *= ratio;
+      this.sealed = false; this.freshSeal = false;
+      this.P = Pamb;
+      return true;
+    }
+    /** Screw the cap back on: the pool starts as room air at 1 atm; the drink then refills it with CO2. */
+    seal(Pamb, RT) {
+      if (this.sealed) return false;
+      this.sealed = true; this.freshSeal = false;
+      this.nAir = Pamb * this.gasVolume() / RT; this.nCO2 = 0; this.P = Pamb;
+      return true;
     }
 
     /**
@@ -164,23 +207,62 @@
         this.Vb += Vair; this.Nb += Vair / (4 / 3 * Math.PI * R_TRAPPED ** 3);
         this.slosh = sEq + Math.sign(this.slosh - sEq) * SLOSH_BREAK;
       }
-      // trapped bubbles grow on the dissolved CO2, then rise out into foam
+      // the gas pool of a sealed bottle: ideal gas, in Henry equilibrium with the drink
+      const Pamb = ctx.P, kH = ctx.kH;
+      if (this.sealed) {
+        const Vg = this.gasVolume();
+        if (this.freshSeal) {                                      // filled and capped: air at 1 atm + CO2 at equilibrium
+          this.freshSeal = false;
+          this.nAir = Pamb * Vg / ctx.RT; this.nCO2 = (ctx.c / kH) * Vg / ctx.RT;
+        }
+        const n = this.nAir + this.nCO2;
+        this.P = n * ctx.RT / Vg;
+        const pCO2 = this.P * this.nCO2 / Math.max(n, 1e-12);
+        // CO2 crosses the drink's surface toward c = k_H·P_CO2; sloshing renews the surface
+        const kL = 2e-5 * (1 + 100 * Math.abs(this.sloshRate) * R);
+        let dn = kL * Math.PI * R * R * (ctx.c - kH * pCO2) * dt;
+        dn = U.clamp(dn, -0.5 * this.nCO2, 0.5 * ctx.c * this.V);
+        this.nCO2 += dn; mol += dn;
+      } else this.P = Pamb;
+      // a bubble is in balance when the CO2 pressure inside it (the pool's CO2 share
+      // under the cap; ~all of it in an open bottle) plus its Laplace pressure
+      // 2σ/R matches the drink: so tiny bubbles in a drink at equilibrium dissolve
+      // away within a minute or so (why a shaken bottle calms down if you wait)
+      const Pin = this.sealed ? this.P : Pamb;
+      const pGas = this.sealed ? this.P * this.nCO2 / Math.max(this.nAir + this.nCO2, 1e-12) : Pamb;
+      // trapped bubbles grow on the dissolved CO2 (or shrink back into it, under
+      // pressure), then rise out into foam
       if (this.Vb > 0 && this.Nb > 0) {
         const Rb = Math.cbrt(3 * this.Vb / (4 * Math.PI * this.Nb));
-        const drive = Math.max(0, ctx.c - ctx.ceq) * ctx.RT / ctx.P;   // gas volume per volume of drink
+        const ceq = kH * (pGas + 2 * (ctx.sigma || 0.07) / Math.max(Rb, 1e-6));
+        const drive = (ctx.c - ceq) * ctx.RT / Pin;                // gas volume per volume of drink
         let dVg = this.Nb * 4 * Math.PI * Rb * D_CO2 * drive * dt;
-        const molMax = 0.5 * Math.max(0, ctx.c - ctx.ceq) * this.V;     // never more than half the excess
-        mol = Math.min(dVg * ctx.P / ctx.RT, molMax);
-        dVg = mol * ctx.RT / ctx.P;
-        this.Vb += dVg;
+        const molMax = 0.5 * Math.max(0, ctx.c - ceq) * this.V;      // never more than half the excess
+        let dm = U.clamp(dVg * Pin / ctx.RT, -0.9 * this.Vb * Pin / ctx.RT, molMax);
+        dVg = dm * ctx.RT / Pin;
+        this.Vb += dVg; mol += dm;
+        if (this.sealed) this.nCO2 += dm;                          // bubble gas belongs to the pool
         const R2 = Math.cbrt(3 * this.Vb / (4 * Math.PI * this.Nb));
         const u = Math.min(0.25, 2 * 1000 * C.G * R2 * R2 / (9 * (ctx.mu || 1.5e-3)));
         const fr = 1 - Math.exp(-dt * u / Math.max(depth, 0.01));
         const out = this.Vb * fr;
         this.Vb -= out; this.Nb -= this.Nb * fr;
-        const lift = Math.min(this.V * 0.5, out * FOAM_PHI / (1 - FOAM_PHI));
+        const lift = Math.min(this.V * 0.5, out * FOAM_PHI / (1 - FOAM_PHI));   // (under the cap its gas is still part of the pool)
         this.foamG += out; this.foamL += lift; this.V -= lift;
-        if (this.Vb < 1e-10) this.Vb = this.Nb = 0;
+        // under the cap the drink is in equilibrium with the gas, and a trapped
+        // bubble's surface tension (2σ/R) squeezes its gas back into the drink. Its
+        // air dissolves ~50× more slowly than CO2, so that sets the pace: tens of
+        // seconds for these fine bubbles, longer for big ones (estimate:
+        // τ = 30 s·(R/20 µm)²). That and rising out is why a shaken bottle left to
+        // stand for a minute or two no longer gushes.
+        if (this.sealed && this.Vb > 0) {
+          const Rn = Math.cbrt(3 * this.Vb / (4 * Math.PI * Math.max(this.Nb, 1e-9)));
+          const f = 1 - Math.exp(-dt / (DISSOLVE_TAU * (Rn / R_TRAPPED) ** 2));
+          const dmol = f * this.Vb * this.P / ctx.RT, x = this.nCO2 / Math.max(this.nCO2 + this.nAir, 1e-12);
+          this.nCO2 -= dmol * x; this.nAir = Math.max(0, this.nAir - dmol * (1 - x)); mol -= dmol * x;
+          this.Vb -= this.Vb * f; this.Nb -= this.Nb * f;
+        }
+        if (this.Vb < 1e-10 || Math.cbrt(3 * this.Vb / (4 * Math.PI * Math.max(this.Nb, 1e-9))) < 3e-6) this.Vb = this.Nb = 0;   // dissolved away
       }
       // the foam bursts back into liquid and gas
       if (this.foamG > 0) {
@@ -198,7 +280,7 @@
       if (Vf > 1e-10) {
         this.foamTop = this.surfaceHeight(cosP, sinP, Math.min(this.capacity, Vl + Vf));
         const lipLow = this.L * cosP - t.r * sinP;
-        if (this.foamTop >= lipLow - 1e-4 || Vl + Vf > this.capacity) {
+        if (!this.sealed && (this.foamTop >= lipLow - 1e-4 || Vl + Vf > this.capacity)) {
           const fits = Math.max(0, this.volumeBelow(lipLow, cosP, sinP) - Vl);   // foam room below the lip's level
           const ex = Math.max(0, Vf - fits, Vl + Vf - this.capacity);
           const out = Math.min(Vf, ex * (1 - Math.exp(-dt / FOAM_EXIT_TAU)));
@@ -209,12 +291,15 @@
           }
         }
       }
-      // a drink swollen by bubbles past the brim is pushed out of the mouth too
-      if (this.V + this.Vb > this.capacity) {
-        const vl = Math.min(this.V, this.V + this.Vb - this.capacity);
-        this.V -= vl;
+      // a drink swollen by bubbles past the brim is pushed out of the mouth too —
+      // as the bubbly mixture it is (its gas share goes with it): a gusher's foam
+      if (!this.sealed && this.V + this.Vb > this.capacity) {
+        const ex = this.V + this.Vb - this.capacity, a = this.Vb / (this.V + this.Vb);
+        const vl = Math.min(this.V, ex * (1 - a)), vg = ex * a;
+        this.V -= vl; this.Nb -= this.Nb * vg / Math.max(this.Vb, 1e-15); this.Vb -= vg;
         this.spew = this.spew || { vg: 0, vl: 0, liquid: 0 };
-        this.spew.liquid += vl;
+        if (a > 0.4) { this.spew.vg += vg; this.spew.vl += vl; }       // foam
+        else this.spew.liquid += vl;                                   // bubbly drink
       }
       this.lostMol += mol;
       return mol;
@@ -320,6 +405,7 @@
       const h = this.surfaceHeight(cosP, sinP, Math.min(this.capacity, this.V + this.Vb));   // bubbles swell the drink
       this.surface = h;
       const lipLow = this.L * cosP - r * sinP;
+      if (this.sealed) { this.Q = 0; this.regime = 'sealed'; this.head = h - lipLow; this.deficit = 0; this.mouthLiquidArea = 0; return 0; }
       // the sloshing surface stands higher (or lower) at the mouth, which sits a
       // horizontal distance ≈ (L/2)·sinφ from the middle of the drink. Only the
       // swing about the level the moving bottle imposes counts: a steady

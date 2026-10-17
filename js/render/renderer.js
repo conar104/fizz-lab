@@ -693,6 +693,8 @@
       const lenPx = B.L * PX, reach = lenPx + T.R * PX + 2;
       this._bottleGeom = { tipX, tipY, dx, dy, lenPx, halfPx: T.R * PX, cp: F.cp };
       const labelS0 = 0.35 * T.Lb, labelS1 = 0.8 * T.Lb, stripeS = 0.575 * T.Lb;
+      // the cap (sealed bottle): a ribbed screw cap ~12 mm over the neck
+      const capOn = B.sealed, capPx = 0.012 * PX, capC = stripe, capEdge = pack(mix(unpackRGB(stripe), [0, 0, 0], 0.35));
       // sloshing, bubbles and foam in the bottle (bottle.js)
       const slT = Math.tan(B.slosh || 0), midX = tipX + dx * lenPx * 0.6;
       const bub = Math.min(0.15, (B.gasFraction || 0) * 0.6), frame = Math.floor(sim.time * 12);
@@ -713,7 +715,8 @@
           const half = r * PX + 1, av = Math.abs(v);
           if (av > half) continue;
           let c;
-          if (u < 1.5 || av > half - 1) c = edge;            // lip and wall
+          if (capOn && u < capPx && av <= half + 1) c = av > half - 0.5 || u < 1 ? capEdge : capC;   // the cap
+          else if (u < 1.5 || av > half - 1) c = edge;       // lip and wall
           else if (s > labelS0 && s < labelS1) {
             c = Math.abs(s - stripeS) < 0.006 ? stripe : label;
           } else {
@@ -727,6 +730,16 @@
             } else c = B.V > 0 && yh < surf + foamH ? (U.hash2(x, y) < 0.2 ? foamE : foamC) : air;
           }
           this.px(x, y, c);
+        }
+      }
+      const since = sim.time - (sim.stats.openedAt ?? -1e9);
+      if (since >= 0 && since < 0.6 && B.hiss > 0) {
+        const r0 = (2 + since * 30) * Math.min(1.5, 0.5 + B.hiss / 3e5), k = 1 - since / 0.6;
+        const ux = Math.sin(phi), uy = -Math.cos(phi) * F.cp;            // out along the axis (screen)
+        for (let i = 0; i < 40; i++) {
+          const a = U.hash2(i, 7) * 2 * Math.PI, rr = r0 * Math.sqrt(U.hash2(i, 11));
+          const X = Math.round(tipX + ux * r0 * 0.8 + Math.cos(a) * rr), Y = Math.round(tipY + uy * r0 * 0.8 + Math.sin(a) * rr * 0.7);
+          if (U.hash2(i, Math.floor(since * 30)) < k) this.blend(X, Y, RGB.white, 0.5 * k);
         }
       }
     }

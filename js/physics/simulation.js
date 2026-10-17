@@ -415,16 +415,32 @@
     }
     get bottleHeld() { return !!this.pour.manual; }
 
+    /** Twist the cap off (the hiss, and a gush if it was shaken). Returns false if it was already open. */
+    openBottle() {
+      const ok = this.bottle.open(this.Pamb);
+      if (ok) { this.stats.openedAt = this.time; this.emit('bottleOpened', this.bottle.opened); }
+      return ok;
+    }
+    /** Put the cap back on. */
+    capBottle() {
+      const fl = Props.fluid(this.bev, this.params.sodaTemp + C.T0);
+      const ok = this.bottle.seal(this.Pamb, C.R * fl.T);
+      if (ok) this.emit('bottleCapped');
+      return ok;
+    }
+    toggleCap() { return this.bottle.sealed ? (this.openBottle(), false) : (this.capBottle(), true); }
+
     /**
      * The bottle's own motion drives the drink inside it (bottle.js): the
-     * acceleration of the drink's centre of mass, from where the hand moves the
-     * mouth and how fast it turns the bottle. A hand's motion arrives in jumps
+     * acceleration with which the hand moves it. A hand's motion arrives in jumps
      * (one per frame), so the velocity is smoothed over ~3 frames first.
      */
     _shakeBottle(dt) {
       const B = this.bottle, P = this.pour, T = B.type;
-      const phi = B.phi * Math.PI / 180, back = B.L - 0.4 * T.Lb;      // centre of the drink, from the lip
-      const cx = P.mouth.x - Math.sin(phi) * back, cy = P.mouth.y - Math.cos(phi) * back;
+      const phi = B.phi * Math.PI / 180;
+      // driven by how the hand MOVES the bottle; turning it is already in the geometry (the
+      // level surface follows the tilt), and the hand turns it in steps a real wrist smooths out
+      const cx = P.mouth.x, cy = P.mouth.y;
       const S = this._shake || (this._shake = { x: cx, y: cy, vx: 0, vy: 0, ax: 0, ay: 0 });
       const k = 1 - Math.exp(-dt / 0.05);
       const vx = (cx - S.x) / dt, vy = (cy - S.y) / dt;
@@ -438,18 +454,24 @@
       const ax = held ? U.clamp(S.ax, -400, 400) : 0, ay = held ? U.clamp(S.ay, -400, 400) : 0;
       const fl = Props.fluid(this.bev, this.params.sodaTemp + C.T0);
       const mol = B.stepShake(dt, {
-        ax, ay, c: this.cBottle, ceq: fl.kH * this.Pamb, RT: C.R * fl.T, P: this.Pamb, mu: fl.mu,
+        ax, ay, c: this.cBottle, kH: fl.kH, RT: C.R * fl.T, P: this.Pamb, mu: fl.mu, sigma: fl.sigma,
         burstTau: U.clamp(60 / Math.max(this.bev.burstRate || 1, 0.1), 3, 60),
       });
       this.stats.bottleCO2Out = (this.stats.bottleCO2Out || 0) + mol;
       // foam (and swollen drink) pushed out of the mouth falls from there
       if (B.spew) {
         const at = this.worldToTable(P.mouth.x, P.mouth.y);
-        const v = [Math.sin(phi) * 0.25 + S.vx, Math.cos(phi) * 0.25 + S.vy, 0];
+        // forced out through the mouth: speed = volume rate / mouth area (continuity),
+        // at least the gentle 0.25 m/s of foam welling over the lip
+        const rate = (B.spew.vg + B.spew.vl + B.spew.liquid) / dt, Am = Math.PI * T.r * T.r;
+        const u = U.clamp(rate / Am, 0.25, 8);
+        const v = [Math.sin(phi) * u + S.vx, Math.cos(phi) * u + S.vy, 0];
         const c = this.cBottle;
         if (B.spew.vg > 0) this.table.launch('foam', B.spew.vl, B.spew.vg, c * B.spew.vl, 1, [at[0], at[1], 0], v, 2.5e-4);
         if (B.spew.liquid > 0) this.table.launch('liquid', B.spew.liquid, 0, c * B.spew.liquid, 1, [at[0], at[1], 0], v);
         this.stats.bottleSpew = (this.stats.bottleSpew || 0) + B.spew.vl + B.spew.liquid;
+        // a gusher: everything that comes out in the 10 s after the cap comes off (gas included)
+        if (this.time - (this.stats.openedAt ?? -1e9) < 10) this.stats.gushV = (this.stats.gushV || 0) + B.spew.vg + B.spew.vl + B.spew.liquid;
       }
     }
 
@@ -722,6 +744,7 @@
       // AUTO lets go once the amount has gone in; the stream then tails off
       if (P.active && P.auto && P.poured >= P.target) { this.stopPour(); this.emit('pourDone'); }
 
+      if (this.bottle.sealed && (P.active || (P.manual && this.bottle.head > 0))) this.openBottle();
       this._shakeBottle(dt);
       // the bottle decides the flow: angle, liquid left, and air getting back in
       const gasFrac = this.bottle.gasFraction;
@@ -2237,7 +2260,7 @@
         missed: st.streamMissed || 0,
         tableCO2: this.table.puddles.reduce((a, q) => a + (q.n || 0), 0) + this.table.piles.reduce((a, q) => a + (q.n || 0), 0),
         tableCO2Out: st.tableCO2Out || 0, tableFizz: this.tableFizzRate || 0,
-        bottleSlosh: this.bottle.slosh, bottleFoam: this.bottle.foamG + this.bottle.foamL, bottleBubbles: this.bottle.Vb,
+        gushV: st.gushV || 0, bottleSealed: this.bottle.sealed ? 1 : 0, bottleP: this.bottle.P, bottleSlosh: this.bottle.slosh, bottleFoam: this.bottle.foamG + this.bottle.foamL, bottleBubbles: this.bottle.Vb,
         bottleCO2Out: st.bottleCO2Out || 0, tableFrothing: this.additives.mentos.concat(this.additives.salt).some(o => o.tableFizz > 0) ? 1 : 0, bottleSpew: st.bottleSpew || 0, cBottle: this.cBottle, overRim: Math.max(0, st.spilledV - (st.streamMissed || 0)), entrained: st.entrainedV,
         tFlat, tStop, pouring: P.active,
       };

@@ -49,7 +49,7 @@ section('How it is poured');
 }
 {
   const B = Fizz.Bottle, fl = Fizz.Props.fluid(Fizz.Props.BEVERAGES.cola, 277);
-  const drain = (type) => { const b = new B(B.TYPES[type]); let t = 0; while (b.V > 1e-7 && t < 120) { b.step(1 / 240, { holding: true, tiltSpeed: 300 }, fl); t += 1 / 240; } return t; };
+  const drain = (type) => { const b = new B(B.TYPES[type]); b.open(101325); let t = 0; while (b.V > 1e-7 && t < 120) { b.step(1 / 240, { holding: true, tiltSpeed: 300 }, fl); t += 1 / 240; } return t; };
   const t500 = drain('pet500'), t2l = drain('pet2l'), tg = drain('glass355');
   expect('upturned bottles with the same neck drain at about the same rate', Math.abs(500 / t500 - 2000 / t2l) / (500 / t500) < 0.25,
     `500 ml: ${(500 / t500).toFixed(0)} ml/s, 2 L: ${(2000 / t2l).toFixed(0)} ml/s`, 'Clanet & Searby 2004: rate set by neck diameter, ∝ d^2.5');

@@ -570,20 +570,50 @@ section('Time-lapse, flings and spills from the player\'s side');
     `${ml(pile)} of foam on the table after 10 s`, 'the same Mentos nucleation as in the glass, wetted to the film depth');
 }
 {
-  const shake = (amp, hz, secs) => {
+  const shake = (amp, hz, secs, { open = true, wait = 0, then = null } = {}) => {
     seed(1);
     const sim = new Simulation({ beverage: 'cola', iceCubes: 0 });
     sim.grabBottle(); sim.tipBottle(0);
     for (let i = 0; i < 60; i++) sim.step(1 / 120);
+    if (open) sim.openBottle();
     const x0 = sim.pour.mouth.x, y0 = sim.pour.mouth.y;
     for (let f = 0; f < secs * 60; f++) { sim.moveBottle(x0 + amp * Math.sin(2 * Math.PI * hz * f / 60), y0); sim.step(1 / 120); sim.step(1 / 120); }
-    return sim.diagnostics();
+    sim.moveBottle(x0, y0);
+    for (let i = 0; i < wait * 120; i++) sim.step(1 / 120);
+    const before = sim.diagnostics();
+    if (then === 'open') { sim.openBottle(); for (let i = 0; i < 6 * 120; i++) sim.step(1 / 120); }
+    return { ...sim.diagnostics(), before, P: sim.bottle.P, hiss: sim.bottle.hiss };
   };
   const gentle = shake(0.05, 0.5, 3), hard = shake(0.04, 6, 4);
   expect('dragging the bottle slowly only sloshes it; shaking it hard foams it out of the neck and leaves it flatter',
     gentle.bottleSpew < 1e-6 && hard.bottleSpew > 20e-6 && hard.cBottle < 0.9 * gentle.cBottle,
     `gentle: ${ml(gentle.bottleSpew)} out; hard: ${ml(hard.bottleSpew)} out, bottle CO₂ ${(hard.cBottle / 44.6).toFixed(2)} vs ${(gentle.cBottle / 44.6).toFixed(2)} vol`,
     'slosh mode breaking → trapped bubbles growing by diffusion (Epstein–Plesset)');
+}
+{
+  // the cap: ideal-gas headspace in Henry equilibrium with the drink
+  const shake = (secs, wait, openIt = true) => {
+    seed(1);
+    const sim = new Simulation({ beverage: 'cola', iceCubes: 0, sodaTemp: 4 });
+    sim.grabBottle(); sim.tipBottle(0);
+    for (let i = 0; i < 60; i++) sim.step(1 / 120);
+    const P0 = sim.bottle.P, x0 = sim.pour.mouth.x, y0 = sim.pour.mouth.y;
+    for (let f = 0; f < secs * 60; f++) { sim.moveBottle(x0 + 0.04 * Math.sin(2 * Math.PI * 6 * f / 60), y0); sim.step(1 / 120); sim.step(1 / 120); }
+    sim.moveBottle(x0, y0);
+    for (let i = 0; i < wait * 120; i++) sim.step(1 / 120);
+    const sealedSpew = sim.diagnostics().bottleSpew;
+    if (openIt) sim.openBottle();
+    for (let i = 0; i < 6 * 120; i++) sim.step(1 / 120);
+    return { P0, sealedSpew, gush: sim.diagnostics().gushV, hiss: sim.bottle.hiss };
+  };
+  const still = shake(0, 0), shook = shake(4, 0), rested = shake(4, 180);
+  expect('a fresh cold bottle holds ~2–3 bar of CO₂ over the drink (Henry + ideal gas), and opening it unshaken only hisses',
+    still.P0 > 2.5e5 && still.P0 < 4.5e5 && still.gush < 30e-6,
+    `${(still.P0 / 1e5).toFixed(2)} bar absolute, ${ml(still.gush)} out on opening`, 'P = nRT/V, c = k_H·P_CO2');
+  expect('a sealed bottle can be shaken without spilling, then gushes when opened', shook.sealedSpew < 1e-7 && shook.gush > 150e-6,
+    `${ml(shook.sealedSpew)} out while sealed, ${ml(shook.gush)} of foam on opening`, 'Boyle expansion + supersaturation against 1 atm');
+  expect('…but left to stand for a few minutes it calms down (the fine bubbles dissolve and rise out)', rested.gush < 0.4 * shook.gush,
+    `${ml(rested.gush)} vs ${ml(shook.gush)}`, 'Laplace pressure / air-limited dissolution');
 }
 {
   // the bottle stays exactly where you let go of it, wherever that is

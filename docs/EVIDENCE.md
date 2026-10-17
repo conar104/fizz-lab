@@ -130,7 +130,9 @@ These are honest guesses within physically sensible ranges. The game's *trends* 
 | `simulation.js` (table fizz) | Puddle surface mass transfer k_L ≈ 2·10⁻⁵ m/s (doubled by bubbling); varnished wood ≈ 6 sites/cm²; splash loss 15 %; runs keep 80 % of their CO₂; Mentos reach ~2 cm of puddle; puddle warming τ ≈ 5 min | estimates (k_L typical of still water surfaces, 10⁻⁵–10⁻⁴ m/s) |
 | `bottle.js` (slosh/shake) | First slosh mode ω₀² = g·k·tanh(kh), k = 1.841/R | Ibrahim 2005, *Liquid Sloshing Dynamics*, ch. 2 (exact for a circular tank) |
 | `bottle.js` (slosh/shake) | Damping ζ ≈ 0.03; breaking past 25° faster than 0.15 m/s; trapped air ∝ breaking speed (coefficient 0.02); trapped bubbles 50 µm | estimates |
-| `bottle.js` (slosh/shake) | Bubble growth dV/dt = 4πR·D·Δc·RT/P (Sh = 2); Stokes rise 2ρgR²/9μ | Epstein & Plesset 1950; Stokes |
+| `bottle.js` (slosh/shake) | Bubble growth dV/dt = 4πR·D·Δc·RT/P (Sh = 2), with Δc against the gas's CO₂ pressure plus the Laplace pressure 2σ/R; Stokes rise 2ρgR²/9μ | Epstein & Plesset 1950; Stokes |
+| `bottle.js` (cap) | Sealed headspace: ideal gas P = nRT/V over headspace + bubbles + foam gas; Henry equilibrium c = k_H·P_CO₂; Boyle expansion of bubbles on opening | ideal-gas law, Henry's law, Boyle's law (exact) |
+| `bottle.js` (cap) | Surface transfer k_L ≈ 2·10⁻⁵ m/s (×(1 + 100·slosh speed)); trapped-bubble radius 20 µm; air-limited dissolving τ = 30 s·(R/20 µm)²; foam leaving the mouth at max(0.25 m/s, volume rate / mouth area) | estimates |
 | `simulation.js` (rim) | Rim pinning reduced by g/(g + a_swing) while the cup swings | estimate (the meniscus holds against the effective gravity) |
 | `properties.js` | Foam burst rates set so a soda head erodes from the top at once and is gone in ~15–20 s (cola 15 /s, tonic and lemon-lime 15, diet 12, citrus 10, champagne 5; root beer 0.8 keeps its head for minutes) | estimates tuned to everyday observation; the champagne validation still passes |
 | `simulation.js` | Eddy size ℓ = 5 mm for the layer's Richardson number | bubble wakes and plume edges; estimate |

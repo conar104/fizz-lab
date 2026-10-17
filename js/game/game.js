@@ -62,6 +62,7 @@
     { id: 'meltdown', name: 'Meltdown', desc: 'Melt 20 g of ice.', test: (d) => d.iceMelted > 0.02 },
     { id: 'avalanche', name: 'Avalanche', desc: 'Overfill the glass until ice tumbles out over the rim.', test: (d) => d.iceHeapedOut > 0 },
     { id: 'curveball', name: 'Curveball', desc: 'Fling an ice cube clean out of the glass.', test: (d) => d.iceThrown > 0 },
+    { id: 'podium', name: 'Podium Finish', desc: 'Shake a sealed bottle and pop it like a race winner\'s champagne: spray 150 ml of foam.', test: (d) => d.gushV > 150e-6 },
     { id: 'shaken', name: 'Shaken, Not Stirred', desc: 'Shake the bottle until it foams out of the neck.', test: (d) => d.bottleSpew > 5e-6 },
     { id: 'tablefizz', name: 'Table Volcano', desc: 'Get a Mentos or salt fizzing in a puddle on the table.', test: (d) => d.tableFrothing > 0 },
     { id: 'altitude', name: 'Thin Air', desc: 'Pour above 2 000 m.', test: (d, s) => d.poured > 1e-6 && s.params.pressure < 79.5 },
