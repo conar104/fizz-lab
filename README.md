@@ -1,10 +1,12 @@
 # Fizz Lab
 
-An 8-bit simulator of pouring a carbonated drink into a cup, where the graphics are simple and the foam physics is not.
+A pouring game with real fizz physics: 8-bit graphics, and a carbonated-foam simulation that is not simple at all.
+
+**Play it online:** <https://conar104.github.io/fizz-lab/>
 
 **Run it:** open `index.html` in a browser. If your browser blocks scripts on `file://` pages, run `node tools/serve.js` and visit <http://localhost:5173>.
 
-**Play:** hold **SPACE** (or HOLD) to tip the bottle; let go and it rights itself. Drag the glass sideways (or use **← →**) to tilt it. **AUTO** and **STIR** are toggles: click once to start, again to stop. Keys: **A** auto-pour, **I** drop an ice cube in, **M** Mentos, **S** stir, **R** reset, **P** pause, **H** show/hide the HUD. The **LAB** tab has one-click experiments, **GAME** has the five-round *Perfect Pour* challenge and achievements, and **MODEL** lists every equation. Hover any control or readout to see the formula behind it.
+**Play:** pour each glass to the green line with a 3–15 mm head, then SERVE. Grab the bottle by its neck to move it and by its body to tip it, or hold **SPACE** (HOLD) / click **AUTO**. Drag the glass (or **← →**) to tilt it. Keys: **A** auto-pour, **I** ice, **M** Mentos, **S** stir, **U** stand the glass up, **C** clean the table, **R** reset, **P** pause, **[ ]** speed, **V** 3-D/section view, **H** HUD, **?** all shortcuts. Switch to **⚗ LAB** for every setting, one-click experiments, live charts and how the physics works; hover any control or readout to see the formula behind it.
 
 ## Drinks and their carbonation
 
