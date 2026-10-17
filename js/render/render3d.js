@@ -130,6 +130,31 @@
     // it is running over).
     const zBackPx = (z) => TABLE_Y + z * F.sp * PX;               // screen row of table-plane depth z
     const yEdge = zBackPx(Fizz.Table.EDGE.back);
+    // wet ground first: damp wood (darker, tinted by the drink, a faint sheen)
+    // that dries to a sticky stain, darkest at its rim (coffee-ring effect)
+    const W = K.W, Hs = K.H;
+    for (const m of sim.table.marks || []) {
+      const wet = m.V / Math.max(m.Vmax, 1e-15), stain = m.stain || 0;
+      if (wet < 0.02 && stain < 0.02) continue;
+      const [cx, cy] = this._table(F, m.x, 0, m.z);
+      const rx = Math.max(1, m.r * PX), ry = Math.max(0.6, m.r * F.sp * PX);
+      const tint = this._wetColor(sim, m.s, m.bev);
+      for (let Y = Math.max(Math.ceil(yEdge), Math.floor(cy - ry)); Y <= Math.min(Hs - 1, cy + ry); Y++) {
+        for (let X = Math.max(0, Math.floor(cx - rx)); X <= Math.min(W - 1, cx + rx); X++) {
+          const ex = (X + 0.5 - cx) / rx, ey = (Y + 0.5 - cy) / ry, d2 = ex * ex + ey * ey;
+          if (d2 > 1) continue;
+          const i = Y * W + X;
+          let c = unpack(this.buf[i]);
+          // a damp film darkens the wood and takes on the drink's colour; the edge is soft
+          const soft = Math.min(1, (1 - d2) * 6);
+          c = mix(c, mix([0, 0, 0], tint, 0.35), 0.38 * wet * soft);
+          if (wet > 0.3 && U.hash2(X * 3, Y * 5) < 0.025 * wet) c = mix(c, RGB.white, 0.25);   // a glint off the film
+          // the dried stain: faint inside, a darker ring at the rim
+          if (stain > 0) c = mix(c, mix([0, 0, 0], tint, 0.5), stain * (d2 > 0.78 ? 0.22 : 0.07));
+          this.buf[i] = pack(c);
+        }
+      }
+    }
     for (const q of sim.table.puddles) {
       const [cx, cy] = this._table(F, q.x, 0, q.z);
       const rx = Math.max(1, q.r * PX), ry = Math.max(1, q.r * F.sp * PX);

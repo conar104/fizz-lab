@@ -45,6 +45,16 @@
  * and its liquid drains out at the bottom (Darcy, foam permeability) into a
  * Its footprint stays pinned as it shrinks; it just gets lower.
  *
+ * WHERE IT HAS BEEN STAYS WET. Liquid that lands, a foam heap's footprint and
+ * the ground a puddle has covered all keep a thin film of drink (~50 µm: a
+ * wetted, rough varnish holds a film of a few tens of µm; estimate) when the
+ * liquid itself moves on. Films and puddles evaporate, ~3·10⁻⁸ m/s at 20 °C
+ * in still room air (~1 mm a day; rising ~6 %/K), so a damp patch dries in
+ * about half an hour; a sugary drink then leaves a sticky stain, darkest at
+ * its rim where the drying film carried the sugar (the coffee-ring effect,
+ * Deegan et al. 1997, Nature 389:827). Puddles that touch become one puddle
+ * on the bigger one's spot, but the ground both covered stays wet.
+ *
  * SODA ON THE TABLE IS STILL SODA. Every puddle and pile carries its dissolved
  * CO2 (n, mol), its temperature and how much of it is drink (s); the
  * simulation fizzes them (Simulation._fizzTable): a 3 mm film has ~20× the
@@ -62,6 +72,10 @@
   const EDGE = { back: -0.12 };                 // the table's back edge, table-frame z [m]
   const RUNOFF_TAU = 0.2;                       // how fast an over-thick edge empties over it [s] (estimate)
   const RHO_AIR_MU = 1.8e-5;                    // air viscosity [Pa·s]
+  const FILM_H = 50e-6;                         // film of drink left on wetted varnish [m] (estimate)
+  const EVAP = 3e-8;                            // evaporation rate of water at 20 °C, still air [m/s] (~1 mm/day)
+  const MAX_MARKS = 90;
+  const PILE_BURST = 0.3;                       // foam heaps burst slower than a head: they are wetter, fed from below, and unstirred (estimate)
 
   /** Area of a disc (centre at distance d inside the edge) that lies on the table. */
   function areaOnTable(r, d) {
@@ -93,7 +107,43 @@
 
   class Table {
     constructor() { this.clear(); }
-    clear() { this.drops = []; this.puddles = []; this.piles = []; this.landedV = 0; this.returnedV = 0; this.floorV = 0; this.mistV = 0; }
+    clear() { this.drops = []; this.puddles = []; this.piles = []; this.marks = []; this.landedV = 0; this.returnedV = 0; this.floorV = 0; this.mistV = 0; this.evapV = 0; }
+    get filmV() { let v = 0; for (const m of this.marks) v += m.V; return v; }
+
+    /**
+     * Wet the table over a disc (x, z, r): it keeps a film of drink there.
+     * Returns the film volume this newly wetted (the caller takes it from
+     * whatever liquid it has; avail caps it).
+     */
+    wetMark(x, z, r, s, avail = Infinity) {
+      if (!(r > 1e-3)) return 0;
+      // the same patch, or one it mostly covers: grow that one
+      let m = null;
+      for (const q of this.marks) {
+        const d = Math.hypot(q.x - x, q.z - z);
+        if (d + r <= q.r * 1.05) return 0;                         // already wet there
+        if (d < 0.5 * Math.max(q.r, r)) { m = q; break; }
+      }
+      const A = Math.PI * r * r;
+      if (m) {
+        const old = Math.PI * m.r * m.r, add = Math.max(0, A - old);
+        const dv = Math.min(avail, add * FILM_H);
+        if (r > m.r) { m.x = (m.x * old + x * add) / (old + add); m.z = (m.z * old + z * add) / (old + add); m.r = r; }
+        m.V += dv; m.Vmax = Math.max(m.Vmax, m.V); m.s = Math.max(m.s, s); m.bev = m.bev || this.bevNow;
+        return dv;
+      }
+      if (this.marks.length >= MAX_MARKS) {                       // fold the smallest into its nearest neighbour
+        let k = 0;
+        for (let i = 1; i < this.marks.length; i++) if (this.marks[i].r < this.marks[k].r) k = i;
+        const a = this.marks.splice(k, 1)[0];
+        let b = this.marks[0], bd = Infinity;
+        for (const q of this.marks) { const d = Math.hypot(q.x - a.x, q.z - a.z); if (d < bd) { bd = d; b = q; } }
+        b.V += a.V; b.Vmax += a.Vmax; b.stain = Math.max(b.stain || 0, a.stain || 0);
+      }
+      const dv = Math.min(avail, A * FILM_H);
+      this.marks.push({ x, z, r, V: dv, Vmax: Math.max(dv, A * FILM_H), s, bev: this.bevNow || null, stain: 0 });
+      return dv;
+    }
 
     get flyingV() { let v = 0; for (const d of this.drops) v += d.V; return v; }
     get puddleV() { let v = 0; for (const p of this.puddles) v += p.V; return v; }
@@ -209,6 +259,13 @@
           }
           if (d.kind === 'foam') { this.depositFoam(d.x, d.z, d.vg, d.V, d.R, d.s, d.n); this.landedV += d.V; }
           else if (pile) { pile.vl += d.V; pile.n = (pile.n || 0) + (d.n || 0); this.landedV += d.V; }   // soaks into the heap
+          else if (d.y <= 0) {
+            // a drop splashes over ~3× its own size (drop impacts spread to a few
+            // diameters before receding; estimate) and leaves that patch wet
+            const rs = 1.5 * Math.cbrt(6 * d.V / Math.PI), film = this.wetMark(d.x, d.z, rs, d.s, d.V);
+            this.landedV += film;
+            if (d.V - film > 1e-12) this.deposit(d.x, d.z, d.V - film, d.s, (d.n || 0) * (1 - film / d.V), ctx.Tdrop);
+          }
           else this.deposit(d.x, d.z, d.V, d.s, d.n || 0, ctx.Tdrop);
           continue;
         }
@@ -221,8 +278,16 @@
       const K = huppertK(fl.rho, fl.mu);
       const hEq = puddleHeight(fl.sigma, fl.rho);
       const hEdge = Fizz.Capillary.rimOverfill(fl, THETA_TABLE * 180 / Math.PI);
+      const evap = EVAP * Math.exp(0.06 * ((this.Troom || 293) - 293)) * dt;
       for (const p of this.puddles) {
         p.age += dt;
+        // the ground under a puddle is wet; when it moves on, that stays (film from the puddle)
+        if (p.r > (p.markR || 0) * 1.08 || Math.hypot(p.x - (p.markX ?? p.x), p.z - (p.markZ ?? p.z)) > 0.3 * p.r) {
+          const film = this.wetMark(p.x, p.z, p.r, p.s, 0.05 * p.V);
+          p.V -= film; p.markR = p.r; p.markX = p.x; p.markZ = p.z;
+        }
+        const dvE = Math.min(p.V, evap * (p.wet || Math.PI * p.r * p.r));
+        if (dvE > 0) { p.V -= dvE; this.evapV += dvE; this.landedV -= dvE; }
         const d = p.z - EDGE.back;
         let rRest = restRadius(Math.max(p.V, 1e-12), fl.sigma, fl.rho);
         if (d < rRest) {                                        // solve V = h_eq·A_wet(r) for r
@@ -248,7 +313,10 @@
       }
       this._merge(this.puddles, (a, b) => {
         const V = a.V + b.V;
-        a.x = (a.x * a.V + b.x * b.V) / V; a.z = (a.z * a.V + b.z * b.V) / V;
+        this.wetMark(a.x, a.z, a.r, a.s, 0); this.wetMark(b.x, b.z, b.r, b.s, 0);
+        // the joined puddle sits mostly where the bigger one was (it drains the smaller one)
+        const wa = a.V >= b.V ? 0.85 : 0.15;
+        a.x = a.x * wa + b.x * (1 - wa); a.z = a.z * wa + b.z * (1 - wa);
         a.s = (a.s * a.V + b.s * b.V) / V;
         a.T = ((a.T || 294) * a.V + (b.T || 294) * b.V) / V;
         if (b.V > a.V - b.V && b.bev) a.bev = b.bev;
@@ -266,7 +334,8 @@
         // (d) bursting: one bubble diameter per bubble lifetime, faster once dried below φc
         const severity = Math.exp(Math.min(3 * (bev.criticalPhi / Math.max(phi, 1e-5) - 1), 20));
         const pb = p.bev || bev;
-        const kBurst = Math.min(MAX_RATE, pb.burstRate * severity * (ctx.fragility ? ctx.fragility(p.s) : 1));
+        const kBurst = Math.min(MAX_RATE, PILE_BURST * pb.burstRate * severity * (ctx.fragility ? ctx.fragility(p.s) : 1));
+        if (p.r > (p.markR || 0) * 1.08) { const film = this.wetMark(p.x, p.z, p.r, p.s, 0.3 * p.vl); p.vl -= film; p.markR = p.r; }
         p.vg = Math.max(0, p.vg - kBurst * 2 * p.R * area * 0.5 * dt);   // the mound's top ≈ half its footprint
         // (e) drainage: Darcy through the Plateau borders (rigid/mobile blend) plus excess wet liquid
         const pe = Math.min(phi, PHI_JAM), D2 = 4 * p.R * p.R;
@@ -282,6 +351,16 @@
         this._shape(p, fl);
       }
       this.piles = this.piles.filter(p => !p.dead);
+      // films dry; sugar stays behind as a sticky stain (darkest at the rim)
+      for (const m of this.marks) {
+        if (m.V > 0) {
+          const dv = Math.min(m.V, evap * Math.PI * m.r * m.r);
+          m.V -= dv; this.evapV += dv; this.landedV -= dv;
+          if (m.V <= 0) m.V = 0;
+        }
+        const brix = m.bev && m.bev.brix != null ? m.bev.brix : 10;
+        m.stain = Math.min(1, m.s * brix / 12) * (1 - m.V / Math.max(m.Vmax, 1e-15));
+      }
       this._merge(this.piles, (a, b) => {
         const Va = a.vg + a.vl, Vb = b.vg + b.vl;
         a.x = (a.x * Va + b.x * Vb) / (Va + Vb); a.z = (a.z * Va + b.z * Vb) / (Va + Vb);

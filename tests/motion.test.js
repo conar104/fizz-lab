@@ -138,8 +138,22 @@ section('Puddles');
   const M = new Table.Table();
   M.deposit(0, 0, 20e-6, 0, 1); M.deposit(0.06, 0, 20e-6, 0, 0);
   for (let i = 0; i < 1000; i++) M.step(0.002, { fl: water, catchCup: () => false, hitsCup: () => false });
-  expect('puddles that spread into each other merge', M.puddles.length === 1 && Math.abs(M.puddles[0].V - 40e-6) < 1e-9,
-    `${M.puddles.length} puddle, ${ml(M.puddles[0].V)}, ${(M.puddles[0].s * 100).toFixed(0)} % soda`, 'mass balance');
+  {
+    // a damp patch dries in well under an hour; sugary soda leaves a sticky stain, water none
+    const dry = (bev) => {
+      const D = new Table.Table(); D.bevNow = bev; D.Troom = 293;
+      D.wetMark(0.1, 0, 0.03, 1);
+      for (let i = 0; i < 3600; i++) D.step(1, { fl: water, bev, catchCup: () => false, hitsCup: () => false });
+      return D.marks[0];
+    };
+    const cola = dry(Props.BEVERAGES.cola), club = dry(Props.BEVERAGES.club);
+    expect('a damp patch dries within the hour; cola leaves a sticky stain, club soda none', cola.V === 0 && cola.stain > 0.5 && club.stain < 0.05,
+      `film left ${ml(cola.V)}; stain: cola ${cola.stain.toFixed(2)}, club soda ${club.stain.toFixed(2)}`, 'evaporation ~1 mm/day; sugar stays behind (coffee-ring effect)');
+  }
+  const kept = M.puddles.reduce((s, q) => s + q.V, 0) + M.filmV + M.evapV;
+  expect('puddles that spread into each other merge (all of it still there: puddle + the damp film they left + evaporated)',
+    M.puddles.length === 1 && Math.abs(kept - 40e-6) < 1e-9 && M.filmV > 0,
+    `${M.puddles.length} puddle of ${ml(M.puddles[0].V)} + ${ml(M.filmV)} damp film + ${ml(M.evapV)} evaporated, ${(M.puddles[0].s * 100).toFixed(0)} % soda`, 'mass balance');
 }
 
 {
@@ -276,8 +290,9 @@ section('Erupting foam');
   let t = 0;
   while (T.piles.length && t < 300) { T.step(0.05, { fl, bev, catchCup: () => false, hitsCup: () => false }); t += 0.05; }
   const liq = T.puddles.reduce((s, q) => s + q.V, 0);
-  expect('…then it collapses into a puddle of its liquid', T.piles.length === 0 && Math.abs(liq - 10e-6) < 1e-8,
-    `gone after ${t.toFixed(0)} s, leaving ${ml(liq)} of liquid`, 'bursting and drainage as in the head (foam.js)');
+  expect('…then it collapses into a puddle of its liquid, its footprint left damp',
+    T.piles.length === 0 && Math.abs(liq + T.filmV + T.evapV - 10e-6) < 1e-8 && T.filmV > 0 && liq > 5e-6,
+    `gone after ${t.toFixed(0)} s, leaving ${ml(liq)} of puddle and ${ml(T.filmV)} as a damp patch where it stood`, 'bursting and drainage as in the head (foam.js)');
 }
 
 {
