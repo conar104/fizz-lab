@@ -505,6 +505,17 @@ section('Energy: once nothing drives it, every motion runs down');
 // ---------------------------------------------------------------------------
 section('Time-lapse, flings and spills from the player\'s side');
 {
+  // a bottle tipped past horizontal glugs; its stream must arc out, not crawl round the lip
+  seed(2);
+  const sim = new Simulation({ beverage: 'cola' });
+  sim.grabBottle(); sim.moveBottle(-0.06, 0.16); sim.tipBottle(120);
+  for (let i = 0; i < 3 * 120; i++) sim.step(1 / 120);
+  const d = sim.diagnostics(), v = sim.bottle.exitJet().v;
+  expect('a glugging pour from just outside the rim arcs into the glass, where the aim marker says',
+    sim.pour.aimHit === 'cup' && d.missed < 0.1 * sim.liquid.V && v > 0.5,
+    `exit ${v.toFixed(2)} m/s, ${ml(sim.liquid.V)} in the glass, ${ml(d.missed)} missed`, 'Torricelli exit speed on the effective head while glugging');
+}
+{
   // nearly melted slivers bob fast; a 64× time-lapse step must not launch them
   let thrown = 0;
   seed(3);

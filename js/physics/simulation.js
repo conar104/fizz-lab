@@ -753,8 +753,9 @@
         P.poured += dVout;
         const ex = this.bottle.exitJet();
         const phi = this.bottle.phi * Math.PI / 180;
-        this.stream.emit(dVout, this.worldToTable(P.mouth.x, P.mouth.y), [P.exit.ux, P.exit.vy], ex.d,
-                         [-Math.sin(phi), -Math.cos(phi)], flIn, StreamM.separationSpeed(flIn, 72, StreamM.BOTTLE_LIP_K));
+        P.uc = StreamM.separationSpeed(flIn, 72, StreamM.BOTTLE_LIP_K);
+      this.stream.emit(dVout, this.worldToTable(P.mouth.x, P.mouth.y), [P.exit.ux, P.exit.vy], ex.d,
+                         [-Math.sin(phi), -Math.cos(phi)], flIn, P.uc);
       }
       const dV = this._stepStream(dt);                          // what reached the drink this step
       const Q = dV / dt;
@@ -1033,10 +1034,17 @@
         else if (inside === false && Math.abs(u) <= Ro && vv > -0.005) { hit = 'glass'; landY = y; break; }
         if (y <= tableY) { hit = 'table'; landY = tableY; break; }
       }
-      P.aimHit = hit;
       // drips and the slow start of a pour fall straight off the lip: is the lip over the opening?
       const lu = P.mouth.x * tg.cos + P.mouth.y * tg.sin;
       P.lipOver = Math.abs(lu) < hw - 0.002;
+      // a flow too slow to leave the lip clings round it and drips straight down
+      // (teapot effect, stream.js): then that is where it lands
+      if (v > 0 && P.uc && StreamM.clingFraction(v, P.uc) > 0.5) {
+        x = P.mouth.x;
+        hit = P.lipOver ? 'cup' : Math.abs(lu) <= Ro ? 'glass' : 'table';
+        landY = hit === 'cup' ? this._surfaceY(x) : hit === 'glass' ? this.H : tableY;
+      }
+      P.aimHit = hit;
       if (!P.lipOver) P.dripX = P.mouth.x;
       // ice sticking out of the drink under the stream catches it first
       let zImp = g.level, hitIce = false;

@@ -345,10 +345,23 @@
       return dV;
     }
 
-    /** Exit velocity and jet diameter at the lip (continuity through the wetted part of the mouth). */
+    /**
+     * Exit velocity and jet diameter at the lip. Pouring smoothly, the liquid
+     * fills the wetted segment of the mouth: continuity, v = Q/A. Glugging, the
+     * mouth is flooded but shared with the air pushing in, so the liquid does
+     * not fill it: it leaves at the speed its head gives it (Torricelli on the
+     * effective head e − ΔP/ρg, ~0.7 of it averaged over the depth, an
+     * estimate) and the jet necks down to match (vena contracta, A = Q/v).
+     * Spreading a glugging flow over the whole mouth would make it crawl out at
+     * ~0.25 m/s and cling round the lip (teapot effect), when a glugging bottle
+     * really throws a clear arc.
+     */
     exitJet() {
       const A = Math.max(this.mouthLiquidArea, 1e-7);
-      return { v: this.Q / A, d: Math.sqrt(4 * A / Math.PI) };
+      const eEff = Math.max(0, (this.head || 0) - (this.deficit || 0) / (1000 * C.G));
+      const v = this.regime === 'glug' ? Math.max(this.Q / A, 0.7 * Math.sqrt(2 * C.G * eEff)) : this.Q / A;
+      const Aj = Math.min(A, this.Q / Math.max(v, 1e-6));
+      return { v, d: Math.sqrt(4 * Math.max(Aj, 1e-8) / Math.PI) };
     }
   }
 
