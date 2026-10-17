@@ -45,7 +45,15 @@
  *     dV/dt = 4πR·D·(c − c_eq)·RT/P   per bubble,
  * so a cloud of N bubbles grows fast while they are small, and they rise out
  * at their Stokes speed 2ρgR²/9μ (capped at 0.25 m/s), stacking up as foam in
- * the headspace (bursting at the drink's own rate). Foam that outgrows the headspace comes out of the mouth.
+ * the headspace (bursting at the drink's own rate).
+ * FOAM IN THE BOTTLE floats on the drink (itself swollen by the bubbles in it)
+ * and fills the bottle's shape up to a level surface, found by slicing the
+ * bottle exactly as the liquid level is. It leaves only where it stands above
+ * the lowest point of the lip: that part flows out of the mouth within ~0.2 s
+ * (a Bingham foam with a head of centimetres behind it; estimate). So an
+ * upright bottle only foams over once its neck is full, a tipped one sheds
+ * the foam that has slid down to the mouth, and foam lying in the body of a
+ * bottle held mouth-up stays put.
  * The CO2 those bubbles carry off is gone from the drink, so a shaken bottle
  * pours flatter, and the bubbles still in it pour out with the drink and foam
  * up the glass. (A shaken bottle that is still sealed would gush on opening;
@@ -72,6 +80,7 @@
   const R_TRAPPED = 50e-6;       // radius of the bubbles a breaking wave traps [m] (estimate)
   const D_CO2 = 1.9e-9;          // diffusivity of CO2 in the drink [m²/s]
   const FOAM_PHI = 0.15;         // liquid fraction of the foam they make in the headspace
+  const FOAM_EXIT_TAU = 0.2;     // foam standing above the lip flows out within this [s] (estimate)
 
   /**
    *   body  radius R for length Lb, then a conical shoulder of length Ls,
@@ -121,6 +130,7 @@
       this.foamG = 0; this.foamL = 0;       // foam in the headspace: gas and liquid [m³]
       this.lostMol = 0;                     // CO2 the drink has lost to bubbles since it was opened [mol]
       this.spew = null;                     // foam/liquid pushed out of the mouth this step
+      this.surfaceAll = 0; this.foamTop = 0; // heights (bottle frame) of the drink with its bubbles, and of the foam on it
     }
 
     /**
@@ -179,17 +189,32 @@
         this.foamG -= this.foamG * f; this.foamL -= back; this.V += back;
         if (this.foamG < 1e-10) { this.V += this.foamL; this.foamG = this.foamL = 0; }
       }
-      // what no longer fits comes out of the mouth: foam first, then liquid swollen by bubbles
-      const room = this.capacity - this.V - this.Vb;
-      const foamV = this.foamG + this.foamL;
-      if (foamV > room) {
-        const ex = Math.min(foamV, foamV - Math.max(0, room)), f = ex / foamV;
-        this.spew = { vg: this.foamG * f, vl: this.foamL * f, liquid: 0 };
-        this.foamG -= this.foamG * f; this.foamL -= this.foamL * f;
-        if (room < 0) {                                            // the drink itself is pushed out
-          const vl = Math.min(this.V, -room);
-          this.V -= vl; this.spew.liquid = vl;
+      // the foam floats on the drink and fills the bottle up to a level surface;
+      // only what stands above the lowest point of the lip can come out
+      const rad = this.phi * Math.PI / 180, cosP = Math.cos(rad), sinP = Math.sin(rad);
+      const Vl = Math.min(this.capacity, this.V + this.Vb), Vf = this.foamG + this.foamL;
+      this.surfaceAll = this.surfaceHeight(cosP, sinP, Vl);
+      this.foamTop = this.surfaceAll;
+      if (Vf > 1e-10) {
+        this.foamTop = this.surfaceHeight(cosP, sinP, Math.min(this.capacity, Vl + Vf));
+        const lipLow = this.L * cosP - t.r * sinP;
+        if (this.foamTop >= lipLow - 1e-4 || Vl + Vf > this.capacity) {
+          const fits = Math.max(0, this.volumeBelow(lipLow, cosP, sinP) - Vl);   // foam room below the lip's level
+          const ex = Math.max(0, Vf - fits, Vl + Vf - this.capacity);
+          const out = Math.min(Vf, ex * (1 - Math.exp(-dt / FOAM_EXIT_TAU)));
+          if (out > 0) {
+            const f = out / Vf;
+            this.spew = { vg: this.foamG * f, vl: this.foamL * f, liquid: 0 };
+            this.foamG -= this.foamG * f; this.foamL -= this.foamL * f;
+          }
         }
+      }
+      // a drink swollen by bubbles past the brim is pushed out of the mouth too
+      if (this.V + this.Vb > this.capacity) {
+        const vl = Math.min(this.V, this.V + this.Vb - this.capacity);
+        this.V -= vl;
+        this.spew = this.spew || { vg: 0, vl: 0, liquid: 0 };
+        this.spew.liquid += vl;
       }
       this.lostMol += mol;
       return mol;
@@ -197,8 +222,8 @@
 
     /** Gas fraction of what pours out now (bubbles carried with the drink). */
     get gasFraction() { return this.V > 1e-9 ? this.Vb / (this.V + this.Vb) : 0; }
-    /** Height of the foam on the drink in the bottle [m], for drawing. */
-    get foamHeight() { return (this.foamG + this.foamL) / (Math.PI * this.type.R * this.type.R); }
+    /** Thickness of the foam on the drink in the bottle [m] (its top is foamTop). */
+    get foamHeight() { return Math.max(0, (this.foamTop || 0) - (this.surfaceAll || 0)); }
 
     radiusAt(s) {
       const t = this.type;
@@ -222,7 +247,7 @@
     }
 
     /** Height of the free surface holding the remaining liquid (bisection: volume is monotonic in h). */
-    surfaceHeight(cosP, sinP) {
+    surfaceHeight(cosP, sinP, vol = this.V) {
       let lo = Infinity, hi = -Infinity;
       for (const sl of this.slices) {
         const y = sl.s * cosP, dy = sl.r * sinP;
@@ -230,7 +255,7 @@
       }
       for (let it = 0; it < 32; it++) {
         const mid = 0.5 * (lo + hi);
-        if (this.volumeBelow(mid, cosP, sinP) < this.V) lo = mid; else hi = mid;
+        if (this.volumeBelow(mid, cosP, sinP) < vol) lo = mid; else hi = mid;
       }
       return 0.5 * (lo + hi);
     }
@@ -292,7 +317,7 @@
       const t = this.type, r = t.r;
       this.cosP = cosP; this.sinP = sinP;
       if (this.V <= 1e-9) { this.V = 0; this.Q = 0; this.regime = 'empty'; return 0; }
-      const h = this.surfaceHeight(cosP, sinP);
+      const h = this.surfaceHeight(cosP, sinP, Math.min(this.capacity, this.V + this.Vb));   // bubbles swell the drink
       this.surface = h;
       const lipLow = this.L * cosP - r * sinP;
       // the sloshing surface stands higher (or lower) at the mouth, which sits a

@@ -128,12 +128,13 @@
       }
       if (!p) {
         if (this.puddles.length >= MAX_PUDDLES) p = this.puddles.reduce((a, b) => (Math.hypot(a.x - x, a.z - z) < Math.hypot(b.x - x, b.z - z) ? a : b));
-        else { p = { x, z, V: 0, s, r: 0, age: 0, n: 0, T: T || this.Troom || 294 }; this.puddles.push(p); }
+        else { p = { x, z, V: 0, s, r: 0, age: 0, n: 0, T: T || this.Troom || 294, bev: this.bevNow || null }; this.puddles.push(p); }
       }
       const tot = p.V + V;
       p.x = (p.x * p.V + x * V) / tot; p.z = (p.z * p.V + z * V) / tot;
       p.s = (p.s * p.V + s * V) / tot;
       p.T = ((p.T || T || 294) * p.V + (T || p.T || 294) * V) / tot;
+      if (!p.bev || (this.bevNow && V > p.V)) p.bev = this.bevNow || p.bev;   // it is whichever drink most of it is
       p.n = (p.n || 0) + Math.max(0, n);
       p.V = tot;
       if (p.r <= 0) p.r = capRadius(Math.max(p.V, 1e-9));
@@ -146,7 +147,7 @@
       for (const q of this.piles) if (Math.hypot(q.x - x, q.z - z) < q.r) { p = q; break; }
       if (!p) {
         if (this.piles.length >= MAX_PILES) p = this.piles.reduce((a, b) => (Math.hypot(a.x - x, a.z - z) < Math.hypot(b.x - x, b.z - z) ? a : b));
-        else { p = { x, z, vg: 0, vl: 0, R, s, r: 0, h: 0, age: 0, n: 0 }; this.piles.push(p); }
+        else { p = { x, z, vg: 0, vl: 0, R, s, r: 0, h: 0, age: 0, n: 0, bev: this.bevNow || null }; this.piles.push(p); }
       }
       const V0 = p.vg + p.vl, V1 = vg + vl;
       p.x = (p.x * V0 + x * V1) / (V0 + V1); p.z = (p.z * V0 + z * V1) / (V0 + V1);
@@ -250,6 +251,7 @@
         a.x = (a.x * a.V + b.x * b.V) / V; a.z = (a.z * a.V + b.z * b.V) / V;
         a.s = (a.s * a.V + b.s * b.V) / V;
         a.T = ((a.T || 294) * a.V + (b.T || 294) * b.V) / V;
+        if (b.V > a.V - b.V && b.bev) a.bev = b.bev;
         a.n = (a.n || 0) + (b.n || 0); a.salt = (a.salt || 0) + (b.salt || 0);
         a.r = Math.sqrt(a.r * a.r + b.r * b.r);                   // keeps the area of both, spreads on from there
         a.V = V;
@@ -263,7 +265,8 @@
         const area = Math.PI * p.r * p.r;
         // (d) bursting: one bubble diameter per bubble lifetime, faster once dried below φc
         const severity = Math.exp(Math.min(3 * (bev.criticalPhi / Math.max(phi, 1e-5) - 1), 20));
-        const kBurst = Math.min(MAX_RATE, bev.burstRate * severity * (ctx.fragility ? ctx.fragility(p.s) : 1));
+        const pb = p.bev || bev;
+        const kBurst = Math.min(MAX_RATE, pb.burstRate * severity * (ctx.fragility ? ctx.fragility(p.s) : 1));
         p.vg = Math.max(0, p.vg - kBurst * 2 * p.R * area * 0.5 * dt);   // the mound's top ≈ half its footprint
         // (e) drainage: Darcy through the Plateau borders (rigid/mobile blend) plus excess wet liquid
         const pe = Math.min(phi, PHI_JAM), D2 = 4 * p.R * p.R;
@@ -272,8 +275,10 @@
         const vlJam = p.vg * PHI_JAM / (1 - PHI_JAM);
         if (p.vl > vlJam) q += (p.vl - vlJam) * (1 - Math.exp(-dt / TAU_WET));
         q = Math.min(q, 0.9 * p.vl);
+        const keep = this.bevNow; this.bevNow = p.bev || keep;
         if (q > 0) { const dn = (p.n || 0) * q / Math.max(p.vl, 1e-15); p.n -= dn; p.vl -= q; this.deposit(p.x, p.z, q, p.s, dn); this.landedV -= q; }
-        if (p.vg < 1e-9) { if (p.vl > 0) { this.deposit(p.x, p.z, p.vl, p.s, p.n || 0); this.landedV -= p.vl; } p.vl = 0; p.n = 0; p.dead = true; continue; }
+        if (p.vg < 1e-9) { if (p.vl > 0) { this.deposit(p.x, p.z, p.vl, p.s, p.n || 0); this.landedV -= p.vl; } p.vl = 0; p.n = 0; p.dead = true; this.bevNow = keep; continue; }
+        this.bevNow = keep;
         this._shape(p, fl);
       }
       this.piles = this.piles.filter(p => !p.dead);

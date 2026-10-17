@@ -135,7 +135,7 @@
       const rx = Math.max(1, q.r * PX), ry = Math.max(1, q.r * F.sp * PX);
       const h = q.h || q.V / (Math.PI * q.r * q.r);
       const lift = h * F.cp * PX;
-      const wet = this._wetColor(sim, q.s);
+      const wet = this._wetColor(sim, q.s, q.bev);
       const top = pack(wet), side = pack(mix(wet, [0, 0, 0], 0.35)), rim = pack(mix(wet, hex(PAL.woodDark), 0.4));
       const gloss = pack(mix(wet, RGB.white, 0.4)), bead = pack(mix(wet, RGB.white, 0.55));
       // a small glint of the window light, the same size whatever the puddle

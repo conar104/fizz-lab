@@ -321,8 +321,8 @@
     _table(F, x, y, z = 0) { return [CUP_X + x * PX, TABLE_Y - (y * F.cp - z * F.sp) * PX]; }
 
     /** Colour of a puddle or drop: the drink, or (s → 0) clear meltwater. */
-    _wetColor(sim, s) {
-      const pal = this.bevPalette(sim.bev);
+    _wetColor(sim, s, bev) {
+      const pal = this.bevPalette(bev || sim.bev);
       return mix(pal.water, unpackRGB(pal.puddle), U.clamp(s, 0, 1));
     }
 
@@ -338,7 +338,7 @@
         const h = q.V / (Math.PI * q.r * q.r);
         const thick = Math.max(1, Math.round(h * PX));
         const foam = 0;
-        const c = pack(this._wetColor(sim, q.s)), hi = pack(mix(this._wetColor(sim, q.s), RGB.white, 0.35));
+        const c = pack(this._wetColor(sim, q.s, q.bev)), hi = pack(mix(this._wetColor(sim, q.s, q.bev), RGB.white, 0.35));
         for (let x = Math.round(cx) - half; x <= cx + half; x++) {
           const e = 1 - ((x - cx) / Math.max(half, 1)) ** 2;
           if (e <= 0) continue;
@@ -346,7 +346,7 @@
           for (let k = 1; k <= th; k++) this.px(x, TABLE_Y - k + 1, k === th ? hi : c);
           // fizz: bubbles popping at the surface, twinkling
           const fz = Math.min(0.05, (q.fizz || 0) / 1e4 * 0.004 + (q.entrap || 0) * 2e-6);
-          if (fz > 0.003 && U.hash2(x * 7 + Math.floor(sim.time * 10), 3) < fz) this.px(x, TABLE_Y - th, pack(mix(this._wetColor(sim, q.s), RGB.white, 0.7)));
+          if (fz > 0.003 && U.hash2(x * 7 + Math.floor(sim.time * 10), 3) < fz) this.px(x, TABLE_Y - th, pack(mix(this._wetColor(sim, q.s, q.bev), RGB.white, 0.7)));
           const fh = Math.round(foam * Math.sqrt(e));
           for (let k = 1; k <= fh; k++) this.px(x, TABLE_Y - th - k + 1, U.hash2(x, k) < 0.2 ? pack(pal.foamEdge) : pack(pal.foamDry));
         }
@@ -696,7 +696,7 @@
       // sloshing, bubbles and foam in the bottle (bottle.js)
       const slT = Math.tan(B.slosh || 0), midX = tipX + dx * lenPx * 0.6;
       const bub = Math.min(0.15, (B.gasFraction || 0) * 0.6), frame = Math.floor(sim.time * 12);
-      const foamH = (B.foamHeight || 0) / Math.max(0.3, Math.cos(phi));
+      const foamH = B.foamG + B.foamL > 1e-10 ? Math.max(0, (B.foamTop || 0) - (B.surface || 0)) : 0;
       const bpal = this.bevPalette(sim.bev), foamC = pack(bpal.foamMid), foamE = pack(bpal.foamEdge);
       const ringS = B.L - 0.012;                             // neck support ring
       const x0 = Math.floor(tipX - reach), x1 = Math.ceil(tipX + reach);

@@ -586,12 +586,48 @@ section('Time-lapse, flings and spills from the player\'s side');
     'slosh mode breaking → trapped bubbles growing by diffusion (Epstein–Plesset)');
 }
 {
+  // the bottle stays exactly where you let go of it, wherever that is
   const sim = new Simulation({});
-  sim.grabBottle(); sim.moveBottle(0.01, 0.15); sim.releaseBottle();
-  for (let i = 0; i < 240; i++) sim.step(1 / 120);
-  const reach = sim.bottle.L * Math.sin(35 * Math.PI / 180), x = sim.pour.mouth.x, clear = sim.D / 2;
-  expect('a bottle let go of over the glass is set down clear of it, not hanging in front of it', x <= -clear || x - reach >= clear,
-    `lip at ${(x * 100).toFixed(1)} cm, glass ±${(clear * 100).toFixed(1)} cm`, 'UI');
+  let ok = true;
+  for (const [x, y] of [[0.01, 0.17], [-0.2, 0.15], [0.15, 0.2]]) {
+    sim.grabBottle(); sim.moveBottle(x, y); const want = { ...sim.pour.manual }; sim.releaseBottle();
+    for (let i = 0; i < 2 * 120; i++) sim.step(1 / 120);
+    ok = ok && Math.abs(sim.pour.mouth.x - want.x) < 1e-3 && Math.abs(sim.pour.mouth.y - want.y) < 1e-3;
+  }
+  expect('a bottle you let go of stays where you put it (no snapping back)', ok,
+    `lip at ${(sim.pour.mouth.x * 100).toFixed(1)}, ${(sim.pour.mouth.y * 100).toFixed(1)} cm`, 'UI');
+}
+
+// ---------------------------------------------------------------------------
+section('The glass, the table and the bottle are separate systems');
+{
+  // Two identical runs; in one, everything is thrown at the glass. A puddle away
+  // from the glass and the soda left in the bottle must not notice.
+  const run = (busy) => {
+    seed(4);
+    const sim = new Simulation({ beverage: 'cola', iceCubes: 0, pourAmount: 120 });
+    sim.grabBottle(); sim.moveBottle(0.32, 0.12); sim.tipBottle(110);
+    for (let i = 0; i < 1 * 120; i++) sim.step(1 / 120);
+    sim.tipBottle(0); sim.releaseBottle();
+    for (let i = 0; i < 2 * 120; i++) sim.step(1 / 120);
+    sim.startPour(true);
+    for (let i = 0; i < 12 * 120; i++) sim.step(1 / 120);
+    if (busy) { sim.dropMentos(); sim.addSalt(); sim.setStir(true); }
+    for (let i = 0; i < 6 * 120; i++) sim.step(1 / 120);
+    if (busy) { sim.setStir(false); sim.params.beverage = 'club'; sim.bev = Props.BEVERAGES.club; sim.params.tilt = 30; }
+    for (let i = 0; i < 6 * 120; i++) sim.step(1 / 120);
+    // (a puddle far enough out that nothing spilled from the glass can reach it)
+    const far = sim.table.puddles.filter(q => q.x > 0.22).reduce((a, b) => (a && a.V > b.V ? a : b), null);
+    return { n: far.n, fizz: far.fizz, T: far.T, Vb: sim.bottle.V, cB: sim.cBottle, foamB: sim.bottle.foamG + sim.bottle.foamL };
+  };
+  const calm = run(false), busy = run(true);
+  const same = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(Math.abs(a), Math.abs(b), 1e-12);
+  expect('a puddle on the table fizzes the same whatever is done to the glass (Mentos, salt, stirring, a new drink, tilting)',
+    same(calm.n, busy.n) && same(calm.fizz, busy.fizz) && same(calm.T, busy.T),
+    `CO₂ left ${(calm.n * 1e3).toFixed(4)} vs ${(busy.n * 1e3).toFixed(4)} mmol; bubbling ${(calm.fizz / 1e4).toFixed(3)} vs ${(busy.fizz / 1e4).toFixed(3)} /cm²·s`,
+    'each puddle keeps its own CO₂, temperature and drink');
+  expect('…and so does the soda left in the bottle', calm.Vb > 50e-6 && same(calm.Vb, busy.Vb) && same(calm.cB, busy.cB) && same(calm.foamB, busy.foamB),
+    `${ml(calm.Vb)} vs ${ml(busy.Vb)} left, ${(calm.cB / 44.6).toFixed(3)} vs ${(busy.cB / 44.6).toFixed(3)} vol`, 'separate state');
 }
 
 // ---------------------------------------------------------------------------

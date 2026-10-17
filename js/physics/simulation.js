@@ -410,19 +410,7 @@
     tipBottle(phiDeg) { if (this.pour.manual) this.pour.manual.phi = U.clamp(phiDeg, 0, 170); }
     releaseBottle() {
       const P = this.pour;
-      if (P.manual) {
-        // put down where it is — unless, back at its resting angle, the bottle
-        // would hang in front of the glass: then the hand moves it just clear
-        // (whichever side is nearer)
-        const B = this.bottle, rest = Bottle.REST_ANGLE * Math.PI / 180;
-        const reach = B.L * Math.sin(rest) + B.type.R * Math.cos(rest), clear = this.D / 2 + this.mat.wall + 0.01;
-        let x = P.manual.x;
-        if (x > -clear && x - reach < clear) {
-          const left = -clear, right = clear + reach;
-          x = Math.abs(x - left) <= Math.abs(right - x) ? left : right;
-        }
-        P.restSpot = { x, y: P.manual.y };
-      }
+      if (P.manual) P.restSpot = { x: P.manual.x, y: P.manual.y };     // put down exactly where you let go
       P.manual = null;
     }
     get bottleHeld() { return !!this.pour.manual; }
@@ -2011,6 +1999,7 @@
     _stepTable(dt, fl) {
       const R = this.D / 2, H = this.H, wall = Math.max(this.mat.wall, 1.5e-3), base = -this.pivotLocal()[1];
       this.table.Troom = this.params.roomTemp + C.T0;
+      this.table.bevNow = this.bev;                               // what leaves the glass now is this drink
       const back = this.table.step(dt, {
         fl, bev: this.bev, fragility: Foam.fragility, Tdrop: this.liquid.T,
         catchCup: (x, y, z) => { const [u, v] = this.tableToCup(x, y); return v < H && v > 0 && u * u + z * z < R * R; },
@@ -2095,7 +2084,7 @@
         p.wetSeen = Math.max(p.wetSeen || 0, A);
         p.entrap = (p.entrap || 0) * Math.exp(-dt / 0.6) + grown * W.entrapDepth / U.sphereVolume(5 * W.cavityRadius) / A;
         if (!(p.n > 1e-12) || !(p.V > 1e-9)) { p.fizz = 0; continue; }
-        const fl = Props.fluid(Props.dilute(this.bev, U.clamp(p.s, 0.01, 1)), p.T);
+        const fl = Props.fluid(Props.dilute(p.bev || this.bev, U.clamp(p.s, 0.01, 1)), p.T);
         const c = p.n / p.V, PL = this.Pamb + fl.rho * C.G * h / 2;
         const ev = Nuc.evaluate(W, { c, kH: fl.kH, PL, fl, u: 0 });
         const Rb = Math.min(ev.Rd || 0, h / 2);
@@ -2114,7 +2103,7 @@
         o.tableFizz = 0;
         if (!p || !(p.n > 1e-12) || !(p.V > 1e-9)) return;
         const h = Math.max(p.h || 3e-3, 2e-4), Tp = p.T || Troom;
-        const fl = Props.fluid(Props.dilute(this.bev, U.clamp(p.s, 0.01, 1)), Tp);
+        const fl = Props.fluid(Props.dilute(p.bev || this.bev, U.clamp(p.s, 0.01, 1)), Tp);
         const c = p.n / p.V, PL = this.Pamb + fl.rho * C.G * h / 2;
         const ev = Nuc.evaluate(surf, { c, kH: fl.kH, PL, fl, u: 0 });
         const Rb = Math.min(ev.Rd || 0, h / 2);
