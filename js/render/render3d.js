@@ -58,14 +58,19 @@
     this._drawTable3d(sim, F, PX);
     this._drawPuddle3d(sim, F, PX);
     this._drawPiles3d(sim, F, PX, false, t);                     // foam heaped behind the glass first
-    // the stream first: the glass is drawn over it, so where it goes down into the
-    // mouth it is seen through the front wall (and hidden once it is under the drink)
-    this._drawStream(sim, F, t);
+    // The stream lives in the glass's middle plane, so it is depth-sorted against
+    // the glass: drawn to its own layer, then composited after the far half of the
+    // rim and before the near half — in front of the back of the rim, behind the
+    // front; seen through the front wall's glass inside it; lost in the drink below
+    // the surface.
+    const layer = this._streamLayer(sim, F, t);
     this._drawCup3d(sim, F, PX, t);
     this._drawBubbles3d(sim, F, PX);
     this._drawAdditives3d(sim, F, PX, t);
     this._drawLooseIce3d(sim, F, PX);
-    this._drawRim3d(sim, F, PX);
+    this._drawRim3d(sim, F, PX, 'back');
+    this._compositeStream(layer);
+    this._drawRim3d(sim, F, PX, 'front');
     this._drawSpoon3d(sim, F, PX);
     this._drawPiles3d(sim, F, PX, true, t);                      // and in front of it last
     if (overlay && overlay.target != null) this._drawTarget3d(sim, F, PX, overlay.target, t);
@@ -133,6 +138,8 @@
       const wet = this._wetColor(sim, q.s);
       const top = pack(wet), side = pack(mix(wet, [0, 0, 0], 0.35)), rim = pack(mix(wet, hex(PAL.woodDark), 0.4));
       const gloss = pack(mix(wet, RGB.white, 0.4)), bead = pack(mix(wet, RGB.white, 0.55));
+      // a small glint of the window light, the same size whatever the puddle
+      const gX = cx - 0.35 * rx, gY = cy - lift - 0.3 * ry, gW = Math.max(0.6, Math.min(0.12 * rx, 6)), gH = Math.max(0.5, Math.min(0.1 * ry, 1.6));
       for (let Y = Math.floor(cy - ry - lift - 1); Y <= cy + ry; Y++) {
         for (let X = Math.floor(cx - rx); X <= cx + rx; X++) {
           const ex = (X + 0.5 - cx) / rx;
@@ -141,10 +148,24 @@
           let col = null;
           if (dT < 1 && Y + lift >= yEdge) {
             // the top surface (its own footprint row decides whether it is on the table)
-            col = dT > 0.86 ? rim : (ex < -0.25 && ex > -0.45 && eyT < -0.2 && eyT > -0.45) ? gloss : top;
+            const gx = (X + 0.5 - gX) / gW, gy = (Y + 0.5 - gY) / gH;
+            col = dT > 0.86 ? rim : gx * gx + gy * gy < 1 ? gloss : top;
             if (q.atEdge && Math.abs(Y + lift - yEdge) < 1) col = q.runoff > 1e-8 ? side : bead;
           } else if (dB < 1 && Y >= yEdge && eyB > 0) col = side;  // its front side
           if (col != null) this.px(X, Y, col);
+        }
+      }
+      // fizz: bubbles from the wood grain (and air trapped as it first wetted the
+      // table) wink at the surface; each one lives ~0.1 s, so they twinkle
+      const fz = Math.min(0.05, (q.fizz || 0) / 1e4 * 0.004 + (q.entrap || 0) * 2e-6);
+      if (fz > 0.003) {
+        const frame = Math.floor(sim.time * 10);
+        for (let Y = Math.floor(cy - ry - lift); Y <= cy + ry - lift; Y++) {
+          for (let X = Math.floor(cx - rx); X <= cx + rx; X++) {
+            const ex = (X + 0.5 - cx) / rx, ey = (Y + 0.5 + lift - cy) / ry;
+            if (ex * ex + ey * ey > 0.8 || Y + lift < yEdge) continue;
+            if (U.hash2(X * 7 + frame, Y * 13 - frame * 3) < fz) this.px(X, Y, bead);
+          }
         }
       }
     }
@@ -210,6 +231,13 @@
     // the ray direction in the cup's frame is the same for every pixel
     const du = -sp * s, dv = -sp * c, dw = -cp;
     const zStart = Ro + 0.05;
+    // per pixel: where along the view ray the front wall is, and the first thing
+    // you cannot see through (or the drink), so the stream can be depth-sorted
+    const N = W * K.H;
+    if (!this._dWall || this._dWall.length !== N) { this._dWall = new Float32Array(N); this._dSolid = new Float32Array(N); this._dKind = new Uint8Array(N); }
+    this._dWall.fill(Infinity); this._dSolid.fill(Infinity); this._dKind.fill(0);
+    // every ray starts at depth zStart and loses cp per unit t: it crosses the middle plane at
+    this._depth = { t0: zStart / cp, matRGB, glass, liq, kAbs };
 
     for (let Y = y0; Y <= y1; Y++) {
       for (let X = x0; X <= x1; X++) {
@@ -234,9 +262,10 @@
           else back = unpack(this.buf[i]);                       // looking out over the rim
         }
 
-        let col = null;
+        let col = null, tS = Infinity, kind = 0;                 // kind 1: drink (partly see-through), 2: solid
         if (inner) {
           const tA = inner[0], tB = inner[1];
+          const backIsWall = v0 + tB * dv <= H;
           // nearest ice cube along the ray
           let tc = Infinity, face = 0, cubeSub = false;
           for (const qb of cubes) {
@@ -261,13 +290,16 @@
             const tEnd = Math.min(tc, tB);
             const target = tc < Infinity ? iceC(true) : back;
             col = mix(target, waterC, 0.55 + 0.35 * (1 - Math.exp(-15 * (tEnd - tA))));
+            tS = tA; kind = 1;
           } else if (yA < hSx) {
             // entering the liquid through the front wall
             const tEnd = Math.min(tc, tB);
             const target = tc < Infinity ? iceC(true) : back;
             col = mix(target, liq, 1 - Math.exp(-kAbs * (tEnd - tA)));
+            tS = tA; kind = 1;
           } else if (hasFoam && yA < foamTopAt(tA)) {
             col = foamCol(yA, X, Y, false, x);                     // the foam's side, through the wall
+            tS = tA; kind = 2;
           } else {
             // entering from above: what comes first — ice, foam top, liquid surface, or the far side?
             const tf = hasFoam ? (yStart - hFx) / sp : Infinity;
@@ -283,10 +315,11 @@
             }
             const tLiq = tl >= tA && tl < tB ? tl : Infinity;
             const first = Math.min(tc, tFoam, tLiq);
-            if (first === Infinity) col = back;
-            else if (first === tc) col = iceC(cubeSub);
-            else if (first === tFoam) col = foamCol(yAt(tFoam), Math.round(u0 + tFoam * du * 1e3), Math.round(w0 + tFoam * dw * 1e3), true, x);
+            if (first === Infinity) { col = back; if (backIsWall) { tS = tB; kind = 2; } }
+            else if (first === tc) { col = iceC(cubeSub); tS = tc; kind = 2; }
+            else if (first === tFoam) { col = foamCol(yAt(tFoam), Math.round(u0 + tFoam * du * 1e3), Math.round(w0 + tFoam * dw * 1e3), true, x); tS = tFoam; kind = 2; }
             else {
+              tS = tLiq; kind = 1;
               // the liquid surface: what lies below shows through, fading with depth
               const tEnd = Math.min(tc > tLiq ? tc : Infinity, tB);
               const target = tc > tLiq && tc < Infinity ? iceC(true) : back;
@@ -316,27 +349,68 @@
           }
         }
         if (col) this.buf[i] = pack(col);
+        if (throughWall) this._dWall[i] = outer[0];
+        if (!inner && outer) { tS = outer[0]; kind = 2; }      // the wall seen edge-on
+        this._dSolid[i] = tS; this._dKind[i] = kind;
       }
     }
   };
 
   function unpack(p) { return [p & 255, (p >> 8) & 255, (p >> 16) & 255]; }
 
+  /** Draw the stream into a layer of its own (0 = nothing there). */
+  Rp._streamLayer = function (sim, F, t) {
+    const N = W * K.H;
+    if (!this._sLayer || this._sLayer.length !== N) this._sLayer = new Uint32Array(N);
+    this._sLayer.fill(0);
+    const save = this.buf;
+    this.buf = this._sLayer;
+    this._drawStream(sim, F, t);
+    this.buf = save;
+    return this._sLayer;
+  };
+
+  /**
+   * Put the stream over the scene where nothing nearer hides it. It is in the
+   * middle plane (ray parameter t0): in front of anything the ray meets later, seen
+   * through the front wall's glass if the wall comes first, fading into the drink
+   * once it is under the surface, and hidden behind anything solid in front of it.
+   */
+  Rp._compositeStream = function (layer) {
+    const d = this._depth;
+    for (let i = 0; i < layer.length; i++) {
+      const p = layer[i];
+      if (!p) continue;
+      if (!d) { this.buf[i] = p; continue; }
+      let c = unpack(p);
+      const tS = this._dSolid[i], kind = this._dKind[i];
+      if (tS < d.t0) {
+        if (kind === 2) continue;                                // something solid is in front
+        c = mix(c, d.liq, 1 - Math.exp(-d.kAbs * (d.t0 - tS)));  // under the drink
+        if (d.kAbs > 40) continue;                               // dark drinks hide it entirely
+      }
+      if (this._dWall[i] < d.t0) c = mix(c, d.matRGB, d.glass ? 0.14 : 0.6);   // behind the front wall
+      this.buf[i] = pack(c);
+    }
+  };
+
   /** The rim: a ring between the inner and outer radius at the top of the wall. */
-  Rp._drawRim3d = function (sim, F, PX) {
+  Rp._drawRim3d = function (sim, F, PX, half) {
     const R = sim.D / 2 * PX, Ro = R + Math.max(sim.mat.wall * PX, 1.5), H = sim.H * PX;
     const glass = F.id === 'glass';
     const rimC = glass ? P.white : this.colorOf({ plastic: PAL.white, paper: PAL.silver, styrofoam: '#c8c8cc', ceramic: PAL.yellow, steel: PAL.white }[F.id]).p;
     const n = Math.ceil(2 * Math.PI * Ro * 2);
     for (let k = 0; k < n; k++) {
       const a = k / n * 2 * Math.PI, ca = Math.cos(a), sa = Math.sin(a);
+      if (half === 'back' && sa >= 0) continue;                 // far half: depth w < 0
+      if (half === 'front' && sa < 0) continue;                 // near half: depth w ≥ 0
       for (let r = R; r <= Ro; r += 0.5) {
         const [X, Y] = F.proj(r * ca, H, r * sa);
         this.px(Math.round(X), Math.round(Y), rimC);
       }
     }
     // the ceramic mug's handle, on the right in the middle plane
-    if (F.handle) {
+    if (F.handle && half !== 'back') {
       const style = hex(PAL.orange);
       const top = H - 8, bot = Math.max(8, H - 42);
       for (let v = bot; v <= top; v += 0.5) for (let u = Ro; u < Ro + 10; u += 0.5) {

@@ -74,7 +74,7 @@
       ['Equilibrium @ room air', d => `${f(d.ceqGL)} g/L`, 'c_eq = k_H(T)·P — what the soda would hold in a pure-CO₂ atmosphere at this pressure.'],
       ['Supersaturation S', d => f(d.S, 2), 'S = c/c_eq − 1. Bubbles can only grow while S > 0 (plus hydrostatic and Laplace pressure).'],
       ['Henry k_H', d => `${f(d.kH, 4)} mol/L·atm`, 'Weiss (1974): ln K₀ = −58.0931 + 90.5069·(100/T) + 22.2940·ln(T/100), × estimated sugar salting-out.'],
-      ['Critical radius R*', d => `${f(d.Rstar * 1e6, 2)} µm`, 'R* = 2σ / (c/k_H − P_L) at mid-depth. Only gas pockets wider than this can grow.'],
+      ['Critical radius R*', d => (isFinite(d.Rstar) ? `${f(d.Rstar * 1e6, 2)} µm` : '∞ (not supersaturated)'), 'R* = 2σ / (c/k_H − P_L) at mid-depth. Only gas pockets wider than this can grow.'],
       ['Homogeneous J', d => (isFinite(d.logJ) ? `10^${d.logJ.toExponential(1)}` : '0'), 'J = J₀·exp(−16πσ³ / 3k_BTΔP²) per m³·s. Effectively zero: every bubble is born on a surface.'],
     ]},
     { group: 'Motion & spills', rows: [
@@ -85,6 +85,11 @@
       ['Thrown drink', d => (d.thrownLiquid > 0 ? ml(d.thrownLiquid) : '—'), 'Liquid leaving the rim with the rim’s own speed (the cup turning about its corner), the slosh wave and the weir outflow. Below ~0.3 m/s it clings and runs down the outside (teapot effect).'],
       ['On the table', d => (d.puddles || d.flying > 0 ? `${d.puddles} puddle${d.puddles === 1 ? '' : 's'} · ${ml(d.puddleV)}${d.flying > 0 ? ` · ${ml(d.flying)} in the air` : ''}` : '—'), 'Puddles spread as viscous gravity currents (Huppert 1982, r ∝ t^⅛) until they are ~3 mm thick (h = 2·l_c·sin(θ/2)), and merge when they touch.'],
       ['Stream', d => (d.inStream > 0 || d.streamMissed > 0 ? `${ml(d.inStream)} in the air${d.streamMissed > 1e-7 ? ` · ${ml(d.streamMissed)} missed` : ''}` : '—'), 'Each step’s outflow flies from the lip as a parcel. It stays a jet for L_b = 19.5·d·[√We(1+3Oh)]^0.85 (Grant & Middleman), then drops; slow flow dribbles down the neck.'],
+    ]},
+    { group: 'Bottle & table', rows: [
+      ['Bottle slosh', d => `${f(d.bottleSlosh * 180 / Math.PI, 0)}° surface tilt${d.bottleBubbles > 1e-8 ? ` · ${ml(d.bottleBubbles)} of bubbles` : ''}${d.bottleFoam > 1e-8 ? ` · ${ml(d.bottleFoam)} foam` : ''}`, 'The drink in the bottle sloshes in its own first mode (~3.7 Hz in a 500 ml bottle) as you move it. Driven past ~25° it breaks and traps fine bubbles; in supersaturated soda they grow (Epstein–Plesset) and foam up the neck.'],
+      ['Bottle CO₂', d => `${f(d.cBottle / 44.6, 2)} vol${d.bottleSpew > 1e-7 ? ` · ${ml(d.bottleSpew)} foamed out` : ''}`, 'What the bottle still holds. Shaking it takes CO₂ out into bubbles and foam, so it pours flatter; the bubbles still in it pour out with the drink and foam up the glass.'],
+      ['Table fizz', d => (d.tableCO2 > 1e-7 || d.tableCO2Out > 1e-6 ? `${f(d.tableCO2 * 1000, 2)} mmol left · ${f(d.tableCO2Out * 1000, 1)} mmol fizzed off${d.tableFrothing ? ' · Mentos/salt frothing' : ''}` : '—'), 'Spilled soda is still soda: a ~3 mm film has ~20× the surface per volume of a glass, so it loses its CO₂ through the surface and bubbles from the wood grain in minutes. A Mentos or salt in a puddle froths it up.'],
     ]},
     { group: 'Temperature & liquid', rows: [
       ['Soda', d => `${f(d.Tliq, 1)} °C`, 'Lumped liquid temperature: wall exchange, ice, surface air, fizz cooling (≈20 kJ/mol desorbed).'],

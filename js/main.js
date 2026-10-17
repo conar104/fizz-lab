@@ -5,7 +5,8 @@
 
   const $ = (id) => document.getElementById(id);
   const DT = 1 / 120;           // physics step at 1× speed
-  const MAX_SUBSTEPS = 32;
+  const MAX_SUBSTEPS = 64;
+  const MAX_DT = 1 / 30;        // the coarsest physics step a time-lapse may take
   const SPEEDS = [0.25, 0.5, 1, 2, 4, 8, 16, 64];          // 64×: time-lapse, to watch ice melt
 
   const sim = new Simulation();
@@ -474,8 +475,10 @@
     last = now;
     if (!paused) {
       const simDt = real * speed;
+      // steps no longer than MAX_DT, so a time-lapse never under-resolves the physics
+      // (on a slow frame the clock runs a little behind rather than stepping coarser)
       const n = Math.min(MAX_SUBSTEPS, Math.max(1, Math.ceil(simDt / DT)));
-      const h = simDt / n;
+      const h = Math.min(simDt / n, MAX_DT);
       for (let i = 0; i < n; i++) sim.step(h);
     }
     renderer.render(sim, { target: game.target }, real);

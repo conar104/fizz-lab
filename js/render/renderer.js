@@ -344,6 +344,9 @@
           if (e <= 0) continue;
           const th = Math.max(1, Math.round(thick * Math.sqrt(e)));
           for (let k = 1; k <= th; k++) this.px(x, TABLE_Y - k + 1, k === th ? hi : c);
+          // fizz: bubbles popping at the surface, twinkling
+          const fz = Math.min(0.05, (q.fizz || 0) / 1e4 * 0.004 + (q.entrap || 0) * 2e-6);
+          if (fz > 0.003 && U.hash2(x * 7 + Math.floor(sim.time * 10), 3) < fz) this.px(x, TABLE_Y - th, pack(mix(this._wetColor(sim, q.s), RGB.white, 0.7)));
           const fh = Math.round(foam * Math.sqrt(e));
           for (let k = 1; k <= fh; k++) this.px(x, TABLE_Y - th - k + 1, U.hash2(x, k) < 0.2 ? pack(pal.foamEdge) : pack(pal.foamDry));
         }
@@ -690,6 +693,11 @@
       const lenPx = B.L * PX, reach = lenPx + T.R * PX + 2;
       this._bottleGeom = { tipX, tipY, dx, dy, lenPx, halfPx: T.R * PX, cp: F.cp };
       const labelS0 = 0.35 * T.Lb, labelS1 = 0.8 * T.Lb, stripeS = 0.575 * T.Lb;
+      // sloshing, bubbles and foam in the bottle (bottle.js)
+      const slT = Math.tan(B.slosh || 0), midX = tipX + dx * lenPx * 0.6;
+      const bub = Math.min(0.15, (B.gasFraction || 0) * 0.6), frame = Math.floor(sim.time * 12);
+      const foamH = (B.foamHeight || 0) / Math.max(0.3, Math.cos(phi));
+      const bpal = this.bevPalette(sim.bev), foamC = pack(bpal.foamMid), foamE = pack(bpal.foamEdge);
       const ringS = B.L - 0.012;                             // neck support ring
       const x0 = Math.floor(tipX - reach), x1 = Math.ceil(tipX + reach);
       const y0 = Math.floor(tipY - reach * F.cp), y1 = Math.ceil(tipY + reach * F.cp);
@@ -709,8 +717,14 @@
           else if (s > labelS0 && s < labelS1) {
             c = Math.abs(s - stripeS) < 0.006 ? stripe : label;
           } else {
-            const full = B.V > 0 && lipH + (tipY - y - 0.5) / (PX * F.cp) < B.surface;
-            c = full ? (av < Math.max(1, half * 0.25) && s < T.Lb ? liqHi : liquid) : air;
+            // the surface tilts as the drink sloshes (about the middle of the drink)
+            const yh = lipH + (tipY - y - 0.5) / (PX * F.cp);
+            const surf = B.surface + slT * (x + 0.5 - midX) / PX;
+            const full = B.V > 0 && yh < surf;
+            if (full) {
+              c = av < Math.max(1, half * 0.25) && s < T.Lb ? liqHi : liquid;
+              if (bub > 0 && U.hash2(x * 5 + frame, y * 3 - frame) < bub) c = foamC;    // fine bubbles all through it
+            } else c = B.V > 0 && yh < surf + foamH ? (U.hash2(x, y) < 0.2 ? foamE : foamC) : air;
           }
           this.px(x, y, c);
         }

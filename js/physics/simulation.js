@@ -53,6 +53,7 @@
   const ICE_KEEP_SPEED = 0.6;
   const FLAT_VOLUMES = 1.5;         // below this many volumes soda tastes flat (a convention)
   const S_STOP = 0.15;              // supersaturation below which bubbling effectively stops
+  const TABLE_SPLASH_LOSS = 0.15;   // share of CO2 a stream loses splashing onto the table (estimate)
   const MENTOS = { area: 11e-4, sink: 0.2, tau: 45, radius: 0.0095 };   // tau: rough candy shell dissolving [s]; Ø 19 mm
   /** A uniformly random point in a disc of radius r. */
   const randomInDisc = (r) => { const q = r * Math.sqrt(Math.random()), a = Math.random() * 2 * Math.PI; return [q * Math.cos(a), q * Math.sin(a)]; };
@@ -409,10 +410,60 @@
     tipBottle(phiDeg) { if (this.pour.manual) this.pour.manual.phi = U.clamp(phiDeg, 0, 170); }
     releaseBottle() {
       const P = this.pour;
-      if (P.manual) P.restSpot = { x: P.manual.x, y: P.manual.y };     // put down where it is
+      if (P.manual) {
+        // put down where it is — unless, back at its resting angle, the bottle
+        // would hang in front of the glass: then the hand moves it just clear
+        // (whichever side is nearer)
+        const B = this.bottle, rest = Bottle.REST_ANGLE * Math.PI / 180;
+        const reach = B.L * Math.sin(rest) + B.type.R * Math.cos(rest), clear = this.D / 2 + this.mat.wall + 0.01;
+        let x = P.manual.x;
+        if (x > -clear && x - reach < clear) {
+          const left = -clear, right = clear + reach;
+          x = Math.abs(x - left) <= Math.abs(right - x) ? left : right;
+        }
+        P.restSpot = { x, y: P.manual.y };
+      }
       P.manual = null;
     }
     get bottleHeld() { return !!this.pour.manual; }
+
+    /**
+     * The bottle's own motion drives the drink inside it (bottle.js): the
+     * acceleration of the drink's centre of mass, from where the hand moves the
+     * mouth and how fast it turns the bottle. A hand's motion arrives in jumps
+     * (one per frame), so the velocity is smoothed over ~3 frames first.
+     */
+    _shakeBottle(dt) {
+      const B = this.bottle, P = this.pour, T = B.type;
+      const phi = B.phi * Math.PI / 180, back = B.L - 0.4 * T.Lb;      // centre of the drink, from the lip
+      const cx = P.mouth.x - Math.sin(phi) * back, cy = P.mouth.y - Math.cos(phi) * back;
+      const S = this._shake || (this._shake = { x: cx, y: cy, vx: 0, vy: 0, ax: 0, ay: 0 });
+      const k = 1 - Math.exp(-dt / 0.05);
+      const vx = (cx - S.x) / dt, vy = (cy - S.y) / dt;
+      const nvx = S.vx + (vx - S.vx) * k, nvy = S.vy + (vy - S.vy) * k;
+      S.ax += ((nvx - S.vx) / dt - S.ax) * k; S.ay += ((nvy - S.vy) / dt - S.ay) * k;
+      S.vx = nvx; S.vy = nvy; S.x = cx; S.y = cy;
+      // only a hand you drive moves it jerkily enough to matter: the automatic
+      // pourer's glide is an animation (its velocity jumps are not real motion),
+      // and a real pourer moves smoothly
+      const held = !!P.manual;
+      const ax = held ? U.clamp(S.ax, -400, 400) : 0, ay = held ? U.clamp(S.ay, -400, 400) : 0;
+      const fl = Props.fluid(this.bev, this.params.sodaTemp + C.T0);
+      const mol = B.stepShake(dt, {
+        ax, ay, c: this.cBottle, ceq: fl.kH * this.Pamb, RT: C.R * fl.T, P: this.Pamb, mu: fl.mu,
+        burstTau: U.clamp(60 / Math.max(this.bev.burstRate || 1, 0.1), 3, 60),
+      });
+      this.stats.bottleCO2Out = (this.stats.bottleCO2Out || 0) + mol;
+      // foam (and swollen drink) pushed out of the mouth falls from there
+      if (B.spew) {
+        const at = this.worldToTable(P.mouth.x, P.mouth.y);
+        const v = [Math.sin(phi) * 0.25 + S.vx, Math.cos(phi) * 0.25 + S.vy, 0];
+        const c = this.cBottle;
+        if (B.spew.vg > 0) this.table.launch('foam', B.spew.vl, B.spew.vg, c * B.spew.vl, 1, [at[0], at[1], 0], v, 2.5e-4);
+        if (B.spew.liquid > 0) this.table.launch('liquid', B.spew.liquid, 0, c * B.spew.liquid, 1, [at[0], at[1], 0], v);
+        this.stats.bottleSpew = (this.stats.bottleSpew || 0) + B.spew.vl + B.spew.liquid;
+      }
+    }
 
     /** Wipe the table: puddles, foam heaps, spilled ice, anything in the air. The glass is left as it is. */
     cleanTable() {
@@ -478,7 +529,7 @@
       const g = this.geom, fl = this.fluid;
       const tilt = g.tilt, cup = this._cupShape();
       const cupT = g.cupTilt;
-      const events = this.ice.step(dt, {
+      const ctx = {
         D: cup.D, H: cup.H, wall: cup.wall, tilt, hSurface: tilt.levelToWorld(g.level), rhoL: fl.rho,
         toTable: (u, v) => { const w = cupT.rot(u, v); return this.worldToTable(w[0], w[1]); },
         velToTable: (u, v, wu, wv) => {
@@ -503,9 +554,22 @@
           const w = SPOON.speed / (0.3 * this.D), ph = this.flow.phase, r = 0.3 * this.D;
           return { u: r * Math.cos(ph), z: r * Math.sin(ph), vu: -r * w * Math.sin(ph), r: 0.003, top: this.H + 0.05 };
         })() : null,
-      });
+      };
+      // A floating cube bobs at ω = √(g / a(ρ_i/ρ_l + C_A)): a nearly melted sliver
+      // bobs fast, and a time-lapse step would overshoot (launching it out of the
+      // glass). So the cubes move in sub-steps of at most a quarter radian of that.
+      let aMin = Infinity;
+      for (const c of this.ice.cubes) if (c.where !== 'table') aMin = Math.min(aMin, c.a);
+      const omega = aMin < Infinity ? Math.sqrt(C.G / (Math.max(aMin, 1e-3) * 1.7)) : 0;
+      const n = Math.min(64, Math.max(1, Math.ceil(dt * omega / 0.25)));
+      const events = [];
+      for (let k = 0; k < n; k++) for (const ev of this.ice.step(dt / n, ctx)) events.push(ev);
       for (const ev of events) {
-        if (ev.type === 'overflow') { this.stats.iceOverflow++; this.emit('iceOverflow'); continue; }
+        if (ev.type === 'overflow') {
+          this.stats.iceOverflow++;
+          if (Math.abs(this.hand.theta) < 0.26) this.stats.iceHeapedOut = (this.stats.iceHeapedOut || 0) + 1;   // heaped up and tumbled out of a standing glass
+          this.emit('iceOverflow'); continue;
+        }
         if (ev.type === 'thrown') { this.stats.iceThrown = (this.stats.iceThrown || 0) + 1; this.emit('iceThrown'); continue; }
         if (ev.type === 'landed') continue;
         // a plunging cube drags an air cavity under; it breaks into bubbles that strip CO2
@@ -530,7 +594,9 @@
       this._dt = dt;
       this.time += dt;
       this.Pamb = p.pressure * 1000;
-      this.cBottle = p.carbonation * C.MOL_PER_VOLUME;           // the bottle's settings act live on the next pour
+      // the bottle's settings act live on the next pour; shaking it takes CO2 out
+      const c0 = p.carbonation * C.MOL_PER_VOLUME;
+      this.cBottle = Math.max(0, c0 - this.bottle.lostMol / Math.max(this.bottle.V + this.bottle.foamL, 1e-6));
       // the hand moves the cup toward the tilt asked for; the drink sloshes in it
       this.hand.step(dt, U.clamp(p.tilt, 0, MAX_TILT) * Math.PI / 180);
       {
@@ -668,13 +734,16 @@
       // AUTO lets go once the amount has gone in; the stream then tails off
       if (P.active && P.auto && P.poured >= P.target) { this.stopPour(); this.emit('pourDone'); }
 
+      this._shakeBottle(dt);
       // the bottle decides the flow: angle, liquid left, and air getting back in
+      const gasFrac = this.bottle.gasFraction;
       const dVout = this.bottle.step(dt, {
         holding: P.active && !P.auto, auto: P.active && P.auto,
         tiltSpeed: p.tiltSpeed, targetQ: p.pourRate * 1e-6,
         manualPhi: P.manual ? P.manual.phi : null,
       }, fl);
       if (dVout > 0 && this.stats.firstPour < 0) this.stats.firstPour = this.time;
+      P.gasFrac = dVout > 0 ? gasFrac : (P.gasFrac || 0) * Math.exp(-dt / 0.5);
       P.Q = dVout / dt;                                         // leaving the bottle
       this._aim(fl);
       const Tin = p.sodaTemp + C.T0;
@@ -731,7 +800,8 @@
       this.stats.co2In += this.cBottle * dV;
 
       // entrained air → bubbles (or straight to froth if the cup is nearly empty)
-      const dVair = jet.Qair * dt;
+      // plus the bubbles a shaken bottle pours out with the drink
+      const dVair = jet.Qair * dt + dV * (P.gasFrac || 0) / Math.max(1 - (P.gasFrac || 0), 0.2);
       this.stats.entrainedV += dVair;
       if (dVair > 0) {
         if (shallow) {
@@ -793,8 +863,12 @@
       }, Props.fluid(this.bev, this.params.sodaTemp + C.T0));
       for (const q of out.table.concat(out.wall)) {
         // missed: onto the table (or down the outside of the glass to it)
-        this.table.deposit(q.x, 0, q.V, 1);
-        this.stats.spilledV += q.V; this.stats.spilledMol += this.cBottle * q.V;
+        // a stream splashing onto a hard table tears into sheets and drops: a
+        // sizeable share of its CO2 leaves right there (estimate: ~15 %)
+        const nq = this.cBottle * q.V;
+        this.table.deposit(q.x, 0, q.V, 1, nq * (1 - TABLE_SPLASH_LOSS), this.params.sodaTemp + C.T0);
+        this.stats.tableCO2Out = (this.stats.tableCO2Out || 0) + nq * TABLE_SPLASH_LOSS;
+        this.stats.spilledV += q.V; this.stats.spilledMol += nq;
         this.stats.streamMissed = (this.stats.streamMissed || 0) + q.V;
       }
       if (out.cup > 0) this.pour.d0 = out.cupD;                 // the jet that arrives is the one that left
@@ -1527,7 +1601,7 @@
             I.tableMelt += dm;                                    // into a puddle round the cube
             if (c.where === 'table') {
               const lanes = I.laneDefs.length ? I.laneDefs : [{ z: 0 }];
-              this.table.deposit(c.x, lanes[Math.min(c.lane, lanes.length - 1)].z, dm / Props.rhoWater(C.T0), 0);
+              this.table.deposit(c.x, lanes[Math.min(c.lane, lanes.length - 1)].z, dm / Props.rhoWater(C.T0), 0, 0, C.T0);
             }
           }
         }
@@ -1703,7 +1777,11 @@
       let g = this.computeGeometry();
       const rim = g.rimLevel;
       const lc = Capillary.capillaryLength(fl);
-      const bulge = Capillary.rimOverfill(fl, this.mat.contactAngle) * (1 - (2 - Math.SQRT2) * lc * 4 / this.D);
+      // The meniscus pinned at the rim only holds against gravity: swung, the
+      // cup's own acceleration (centripetal ω²r and tangential αr at the rim)
+      // adds to g and tears it off, so the bulge shrinks as g / (g + a_swing).
+      const rimR = Math.hypot(this.D / 2, this.H), aSwing = Math.hypot(this.hand.omega ** 2 * rimR, (this.hand.alpha || 0) * rimR);
+      const bulge = Capillary.rimOverfill(fl, this.mat.contactAngle) * (1 - (2 - Math.SQRT2) * lc * 4 / this.D) * C.G / (C.G + aSwing);
       this.crown = { liquid: Math.max(0, g.level - rim), foam: 0, bulgeMax: bulge, domeMax: 0 };
       const Wl = this.water;
       if (g.level > rim + bulge && L.V + Wl.V > 0) {
@@ -1924,8 +2002,9 @@
      */
     _stepTable(dt, fl) {
       const R = this.D / 2, H = this.H, wall = Math.max(this.mat.wall, 1.5e-3), base = -this.pivotLocal()[1];
+      this.table.Troom = this.params.roomTemp + C.T0;
       const back = this.table.step(dt, {
-        fl, bev: this.bev, fragility: Foam.fragility,
+        fl, bev: this.bev, fragility: Foam.fragility, Tdrop: this.liquid.T,
         catchCup: (x, y, z) => { const [u, v] = this.tableToCup(x, y); return v < H && v > 0 && u * u + z * z < R * R; },
         hitsCup: (x, y, z) => {
           const [u, v] = this.tableToCup(x, y), r2 = u * u + z * z;
@@ -1970,10 +2049,102 @@
         if (r.s < wallH) continue;
         const w = cupT.rot(r.side * (R + wall + 1e-3), this.pivotLocal()[1]);
         const [x] = this.worldToTable(w[0], w[1]);
-        if (r.kind === 'foam') this.table.depositFoam(x, 0, Math.max(0, r.vol - r.liq), r.liq, r.foam ? r.foam.R : 3e-4, r.sod);
-        else this.table.deposit(x, 0, r.liq, r.sod);
+        // what runs down the outside has been losing gas on the way (estimate: keeps ~80 %)
+        const nr = 0.8 * r.liq * this.concentration * Math.min(1, r.sod / Math.max(this.liquid.s, 0.05));
+        if (r.kind === 'foam') this.table.depositFoam(x, 0, Math.max(0, r.vol - r.liq), r.liq, r.foam ? r.foam.R : 3e-4, r.sod, nr);
+        else this.table.deposit(x, 0, r.liq, r.sod, nr, this.liquid.T);
       }
       this.runs = this.runs.filter(r => r.s < wallH && r.vol > 1e-9);
+      this._fizzTable(dt);
+    }
+
+    /**
+     * Soda on the table keeps fizzing. Each puddle is a thin film (~3 mm) of the
+     * drink, warming toward the room on the wood (conduction, τ ≈ ρ·c_p·h/h_eff
+     * ≈ 5 min). It loses CO2 two ways:
+     *   - through its free surface, J = k_L·c with c_eq(air) ≈ 0 and
+     *     k_L ≈ 2·10⁻⁵ m/s for a still film, up to doubled by rising bubbles
+     *     renewing the surface; per unit volume that is k_L/h, ~20× a glass;
+     *   - bubbles nucleating in the wood grain (Nucleation.evaluate on the
+     *     "wood" surface, the same model as the glass wall), capped at the film's
+     *     own depth: a bubble breaks out of the top once it is as big as the film.
+     * Freshly wetted dry wood also traps air, which comes up as a burst of bubbles.
+     * A Mentos or salt lying in a puddle is the same powerful site field it is in
+     * the glass (wetted to the film's depth); its gas froths the soda around it
+     * into a foam mound (a pile) on the table.
+     */
+    _fizzTable(dt) {
+      const T = this.table, st = this.stats;
+      const W = Props.SURFACES.wood;
+      const Troom = this.params.roomTemp + C.T0;
+      let out = 0;
+      for (const p of T.puddles) {
+        p.n = Math.max(0, p.n || 0);
+        p.T = (p.T || Troom) + (Troom - (p.T || Troom)) * (1 - Math.exp(-dt / 300));
+        const h = Math.max(p.h || 3e-3, 2e-4), A = Math.max(p.wet || Math.PI * p.r * p.r, 1e-8);
+        // fresh dry wood under a spreading puddle: trapped air bubbles up
+        const grown = Math.max(0, A - (p.wetSeen || 0));
+        p.wetSeen = Math.max(p.wetSeen || 0, A);
+        p.entrap = (p.entrap || 0) * Math.exp(-dt / 0.6) + grown * W.entrapDepth / U.sphereVolume(5 * W.cavityRadius) / A;
+        if (!(p.n > 1e-12) || !(p.V > 1e-9)) { p.fizz = 0; continue; }
+        const fl = Props.fluid(Props.dilute(this.bev, U.clamp(p.s, 0.01, 1)), p.T);
+        const c = p.n / p.V, PL = this.Pamb + fl.rho * C.G * h / 2;
+        const ev = Nuc.evaluate(W, { c, kH: fl.kH, PL, fl, u: 0 });
+        const Rb = Math.min(ev.Rd || 0, h / 2);
+        const molEach = Rb > 0 ? (PL + 2 * fl.sigma / Rb) * U.sphereVolume(Rb) / (C.R * p.T) : 0;
+        const nuc = (ev.rate || 0) * A * molEach;                   // mol/s through bubbles
+        p.fizz = ev.rate || 0;                                      // bubbles per m² per s (for drawing)
+        const kL = 2e-5 * (1 + Math.min(1, p.fizz * U.sphereVolume(Math.max(Rb, 1e-5)) * 2e4));
+        const surf = kL * A * c;
+        const dn = Math.min(p.n * (1 - Math.exp(-dt * (nuc + surf) / p.n)), p.n);
+        p.n -= dn; out += dn;
+      }
+      // Mentos and salt lying in a puddle
+      const A = this.additives;
+      const inPuddle = (x, z) => T.puddles.find(q => Math.hypot(q.x - x, q.z - z) < q.r);
+      const froth = (o, p, surf, area, R) => {
+        o.tableFizz = 0;
+        if (!p || !(p.n > 1e-12) || !(p.V > 1e-9)) return;
+        const h = Math.max(p.h || 3e-3, 2e-4), Tp = p.T || Troom;
+        const fl = Props.fluid(Props.dilute(this.bev, U.clamp(p.s, 0.01, 1)), Tp);
+        const c = p.n / p.V, PL = this.Pamb + fl.rho * C.G * h / 2;
+        const ev = Nuc.evaluate(surf, { c, kH: fl.kH, PL, fl, u: 0 });
+        const Rb = Math.min(ev.Rd || 0, h / 2);
+        if (!(Rb > 0) || !(ev.rate > 0)) return;
+        const molEach = (PL + 2 * fl.sigma * surf.sigmaFactor / Rb) * U.sphereVolume(Rb) / (C.R * Tp);
+        // it only reaches the soda around it (~2 cm), which the film keeps refilling
+        const near = p.n * Math.min(1, Math.PI * 4e-4 / Math.max(p.wet || 1e-8, 1e-8));
+        const dn = Math.min(ev.rate * area * molEach * dt, near * (1 - Math.exp(-dt / 1.5)));
+        if (!(dn > 0)) return;
+        p.n -= dn; out += dn;
+        o.tableFizz = dn / dt;
+        // the gas froths the soda into foam (~15 % liquid), drawn from the puddle
+        const vg = dn * C.R * Tp / this.Pamb;
+        const vl = Math.min(vg * 0.15 / 0.85, 0.2 * p.V);
+        const nl = p.n * vl / p.V;
+        p.V -= vl; p.n -= nl; T.landedV -= vl;
+        T.depositFoam(o.tx, o.tz, vg, vl, R, p.s, nl);
+      };
+      for (const m of A.mentos) {
+        if (m.where !== 'table') continue;
+        const p = inPuddle(m.tx, m.tz), h = p ? (p.h || 3e-3) : 0;
+        const wetFrac = Math.min(1, h / (2 * BODY.mentos.half));
+        if (p) m.tableAge = (m.tableAge || 0) + dt;                // the shell only dissolves while wet
+        froth(m, p, Props.SURFACES.mentos, MENTOS.area * Math.exp(-(m.tableAge || 0) / MENTOS.tau) * (0.5 + 0.5 * wetFrac), 2e-4);
+      }
+      for (const sg of A.salt) {
+        if (sg.where !== 'table' || !(sg.m > 0)) continue;
+        const rg = Math.cbrt(sg.m / sg.grains / (SALT.rho * 4 / 3 * Math.PI));
+        froth(sg, inPuddle(sg.tx, sg.tz), Props.SURFACES.salt, sg.grains * 4 * Math.PI * rg * rg * 0.6, 2.5e-4);
+      }
+      // foam piles: their liquid is spread thin over the films, so it loses its gas in ~20 s
+      for (const p of T.piles) {
+        if (!(p.n > 0)) continue;
+        const dn = p.n * (1 - Math.exp(-dt / 20));
+        p.n -= dn; out += dn;
+      }
+      st.tableCO2Out = (st.tableCO2Out || 0) + out;
+      this.tableFizzRate = out / dt;
     }
 
     // ---------------------------------------------------------------------
@@ -2041,7 +2212,7 @@
         sigma: fl.sigma, mu: fl.mu, D: fl.D, rho: fl.rho, Sc: fl.Sc,
         Tliq: L.T - C.T0, Twall: this.wall.T - C.T0, Troom: this.params.roomTemp,
         iceMass: this.ice.mass, iceT: this.ice.T - C.T0, iceMelted: this.ice.melted, iceFrozen: this.ice.frozen,
-        iceFloating: g.floating, iceThrown: this.stats.iceThrown || 0, iceCount: this.ice.count, iceOnTable: this.ice.cubes.length - this.ice.count,
+        iceFloating: g.floating, iceThrown: this.stats.iceThrown || 0, iceOverflow: this.stats.iceOverflow || 0, iceHeapedOut: this.stats.iceHeapedOut || 0, iceCount: this.ice.count, iceOnTable: this.ice.cubes.length - this.ice.count,
         iceCapacity: Ice.capacity(this.D, this.H, this.params.iceSize / 100), iceH: this.iceH || 0,
         strength: this.liquid.s, freezingPoint: this.freezingPoint() - C.T0,
         saltGrams: this.liquid.salt * SALT.molar * 1000, saltMolal: this.saltMolal,
@@ -2064,7 +2235,13 @@
                   head: this.bottle.head, suction: this.bottle.deficit, glugLimit: this.bottle.glugLimit(),
                   name: this.bottle.type.name },
         poured: P.poured, released: released * C.M_CO2 * 1000, burstV: st.burstV,   // grams
-        spilled: st.spilledV, foamSpilled: st.foamSpilledV, entrained: st.entrainedV,
+        spilled: st.spilledV, foamSpilled: st.foamSpilledV,
+        // of that: what the stream itself missed the glass with, and what came over the rim
+        missed: st.streamMissed || 0,
+        tableCO2: this.table.puddles.reduce((a, q) => a + (q.n || 0), 0) + this.table.piles.reduce((a, q) => a + (q.n || 0), 0),
+        tableCO2Out: st.tableCO2Out || 0, tableFizz: this.tableFizzRate || 0,
+        bottleSlosh: this.bottle.slosh, bottleFoam: this.bottle.foamG + this.bottle.foamL, bottleBubbles: this.bottle.Vb,
+        bottleCO2Out: st.bottleCO2Out || 0, tableFrothing: this.additives.mentos.concat(this.additives.salt).some(o => o.tableFizz > 0) ? 1 : 0, bottleSpew: st.bottleSpew || 0, cBottle: this.cBottle, overRim: Math.max(0, st.spilledV - (st.streamMissed || 0)), entrained: st.entrainedV,
         tFlat, tStop, pouring: P.active,
       };
     }

@@ -104,7 +104,10 @@
   //   criticalPhi       critical liquid fraction φc (Carrier & Colin 2003): films
   //                     rupture en masse once drainage dries the foam below φc,
   //                     independent of bubble size. The key foam-stability knob.
-  //   burstRate / coalescenceRate   rupture frequencies at φ = φc [1/s]
+  //   burstRate / coalescenceRate   rupture frequencies at φ = φc [1/s]; burstRate set so
+  //                     a soda head erodes from the top from the start and is gone in
+  //                     ~15–20 s (cola, lemon-lime, tonic), as poured soda is; root beer
+  //                     (saponin) keeps its head for minutes
   // -------------------------------------------------------------------------
   /**
    * Bulk properties of a sucrose solution at a given °Brix (g sugar / 100 g),
@@ -130,21 +133,21 @@
   // Foam chemistry classes: what is coating the bubbles.
   const FOAM_CLASSES = {
     // caramel colour + phosphoric acid: weakly surface-active
-    cola:     { surfaceTensionRatio: 0.97, mobility: 0.15, filmThickness: 120e-9, criticalPhi: 0.07,  burstRate: 1.0, coalescenceRate: 0.25 },
+    cola:     { surfaceTensionRatio: 0.97, mobility: 0.15, filmThickness: 120e-9, criticalPhi: 0.07,  burstRate: 15, coalescenceRate: 0.25 },
     // aspartame + potassium benzoate lower σ (Coffey 2008, qualitative); values estimated
-    diet:     { surfaceTensionRatio: 0.92, mobility: 0.25, filmThickness: 90e-9,  criticalPhi: 0.06,  burstRate: 1.0, coalescenceRate: 0.25 },
+    diet:     { surfaceTensionRatio: 0.92, mobility: 0.25, filmThickness: 90e-9,  criticalPhi: 0.06,  burstRate: 12, coalescenceRate: 0.25 },
     // clear / fruit sodas: sugar + citric acid, little surfactant
-    fruit:    { surfaceTensionRatio: 0.99, mobility: 0.3,  filmThickness: 100e-9, criticalPhi: 0.10,  burstRate: 1.1, coalescenceRate: 0.3 },
+    fruit:    { surfaceTensionRatio: 0.99, mobility: 0.3,  filmThickness: 100e-9, criticalPhi: 0.10,  burstRate: 15, coalescenceRate: 0.3 },
     // gum arabic / ester-gum emulsions in citrus sodas stabilise films a little
-    emulsion: { surfaceTensionRatio: 0.95, mobility: 0.2,  filmThickness: 110e-9, criticalPhi: 0.08,  burstRate: 1.0, coalescenceRate: 0.25 },
+    emulsion: { surfaceTensionRatio: 0.95, mobility: 0.2,  filmThickness: 110e-9, criticalPhi: 0.08,  burstRate: 10, coalescenceRate: 0.25 },
     // saponins (yucca / quillaja) added as a foaming agent
     saponin:  { surfaceTensionRatio: 0.76, mobility: 0.05, filmThickness: 200e-9, criticalPhi: 0.012, burstRate: 0.8, coalescenceRate: 0.15 },
     // quinine is mildly surface-active
-    quinine:  { surfaceTensionRatio: 0.96, mobility: 0.4,  filmThickness: 80e-9,  criticalPhi: 0.15,  burstRate: 1.0, coalescenceRate: 0.3 },
+    quinine:  { surfaceTensionRatio: 0.96, mobility: 0.4,  filmThickness: 80e-9,  criticalPhi: 0.15,  burstRate: 15, coalescenceRate: 0.3 },
     // sparkling wine: proteins and polysaccharides give a short-lived, fine collar
-    wine:     { surfaceTensionRatio: 0.69, mobility: 0.2,  filmThickness: 100e-9, criticalPhi: 0.08,  burstRate: 1.0, coalescenceRate: 0.25 },
+    wine:     { surfaceTensionRatio: 0.69, mobility: 0.2,  filmThickness: 100e-9, criticalPhi: 0.08,  burstRate: 5, coalescenceRate: 0.25 },
     // plain carbonated water: clean slippery bubbles, films pop when wet
-    water:    { surfaceTensionRatio: 1.0,  mobility: 0.9,  filmThickness: 30e-9,  criticalPhi: 0.5,   burstRate: 1.0, coalescenceRate: 0.4 },
+    water:    { surfaceTensionRatio: 1.0,  mobility: 0.9,  filmThickness: 30e-9,  criticalPhi: 0.5,   burstRate: 15, coalescenceRate: 0.4 },
   };
 
   const SRC = {
@@ -274,6 +277,9 @@
                          entrapDepth: 0.1e-6, k: 16, cp: 500, rho: 7900, wall: 0.8e-3,
                          note: 'Brushed finish and a native oxide; conducts heat ~15× faster than glass.' }),
 
+    wood:      surface({ id: 'wood', name: 'Varnished wood', sitesPerCm2: 6, contactAngle: 70, cavityRadius: 4e-6,
+                         entrapDepth: 2e-6, k: 0.15, cp: 1700, rho: 700, wall: 0,
+                         note: 'The table: open grain pores and micro-scratches in the varnish. Not a cup material.' }),
     ice:       surface({ id: 'ice', name: 'Ice', sitesPerCm2: 400, contactAngle: 50, cavityRadius: 15e-6,
                          entrapDepth: 40e-6, k: 2.2, cp: 2108, rho: 917, wall: 0,
                          note: 'Cracks, frost and frozen-in air bubbles: an enormous field of ready-made gas pockets.' }),

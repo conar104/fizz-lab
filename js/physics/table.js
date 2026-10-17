@@ -43,7 +43,12 @@
  * A pile then lives like the head it came from (foam.js): its top bursts at
  * one bubble diameter per bubble lifetime, faster as it dries (Carrier & Colin),
  * and its liquid drains out at the bottom (Darcy, foam permeability) into a
- * puddle under it. Its footprint stays pinned as it shrinks; it just gets lower.
+ * Its footprint stays pinned as it shrinks; it just gets lower.
+ *
+ * SODA ON THE TABLE IS STILL SODA. Every puddle and pile carries its dissolved
+ * CO2 (n, mol), its temperature and how much of it is drink (s); the
+ * simulation fizzes them (Simulation._fizzTable): a 3 mm film has ~20× the
+ * surface per volume of a glass, so it goes flat in minutes.
  */
 (function (Fizz) {
   'use strict';
@@ -113,7 +118,7 @@
     }
 
     /** Liquid straight onto the table at (x, z). */
-    deposit(x, z, V, s) {
+    deposit(x, z, V, s, n = 0, T = null) {
       if (!(V > 0)) return;
       this.landedV += V;
       let p = null, best = Infinity;
@@ -123,29 +128,31 @@
       }
       if (!p) {
         if (this.puddles.length >= MAX_PUDDLES) p = this.puddles.reduce((a, b) => (Math.hypot(a.x - x, a.z - z) < Math.hypot(b.x - x, b.z - z) ? a : b));
-        else { p = { x, z, V: 0, s, r: 0, age: 0 }; this.puddles.push(p); }
+        else { p = { x, z, V: 0, s, r: 0, age: 0, n: 0, T: T || this.Troom || 294 }; this.puddles.push(p); }
       }
       const tot = p.V + V;
       p.x = (p.x * p.V + x * V) / tot; p.z = (p.z * p.V + z * V) / tot;
       p.s = (p.s * p.V + s * V) / tot;
+      p.T = ((p.T || T || 294) * p.V + (T || p.T || 294) * V) / tot;
+      p.n = (p.n || 0) + Math.max(0, n);
       p.V = tot;
       if (p.r <= 0) p.r = capRadius(Math.max(p.V, 1e-9));
     }
 
     /** Foam onto the table at (x, z): joins the pile it lands on, or starts one. */
-    depositFoam(x, z, vg, vl, R, s) {
-      if (!(vg > 0)) { this.deposit(x, z, vl, s); return; }
+    depositFoam(x, z, vg, vl, R, s, n = 0) {
+      if (!(vg > 0)) { this.deposit(x, z, vl, s, n); return; }
       let p = null;
       for (const q of this.piles) if (Math.hypot(q.x - x, q.z - z) < q.r) { p = q; break; }
       if (!p) {
         if (this.piles.length >= MAX_PILES) p = this.piles.reduce((a, b) => (Math.hypot(a.x - x, a.z - z) < Math.hypot(b.x - x, b.z - z) ? a : b));
-        else { p = { x, z, vg: 0, vl: 0, R, s, r: 0, h: 0, age: 0 }; this.piles.push(p); }
+        else { p = { x, z, vg: 0, vl: 0, R, s, r: 0, h: 0, age: 0, n: 0 }; this.piles.push(p); }
       }
       const V0 = p.vg + p.vl, V1 = vg + vl;
       p.x = (p.x * V0 + x * V1) / (V0 + V1); p.z = (p.z * V0 + z * V1) / (V0 + V1);
       p.R = (p.R * p.vg + R * vg) / (p.vg + vg);
       if (p.vl + vl > 0) p.s = (p.s * p.vl + s * vl) / (p.vl + vl);
-      p.vg += vg; p.vl += vl;
+      p.vg += vg; p.vl += vl; p.n = (p.n || 0) + Math.max(0, n);
     }
 
     /** Shape of a pile from its volume and yield stress (footprint pinned once spread). */
@@ -199,9 +206,9 @@
             this.mistV += d.V;                                     // fizz mist beads on the bare table as a fine dew
             continue;
           }
-          if (d.kind === 'foam') { this.depositFoam(d.x, d.z, d.vg, d.V, d.R, d.s); this.landedV += d.V; }
-          else if (pile) { pile.vl += d.V; this.landedV += d.V; }         // soaks into the heap
-          else this.deposit(d.x, d.z, d.V, d.s);
+          if (d.kind === 'foam') { this.depositFoam(d.x, d.z, d.vg, d.V, d.R, d.s, d.n); this.landedV += d.V; }
+          else if (pile) { pile.vl += d.V; pile.n = (pile.n || 0) + (d.n || 0); this.landedV += d.V; }   // soaks into the heap
+          else this.deposit(d.x, d.z, d.V, d.s, d.n || 0, ctx.Tdrop);
           continue;
         }
         keep.push(d);
@@ -233,6 +240,7 @@
         // pinned at the edge until it stands thicker than h_edge; then it runs over
         if (p.atEdge && p.h > hEdge) {
           const dV = (p.V - hEdge * p.wet) * (1 - Math.exp(-dt / RUNOFF_TAU));
+          if (p.n) p.n -= p.n * dV / p.V;
           p.V -= dV; this.floorV += dV; this.landedV -= dV;
           p.runoff = (p.runoff || 0) * Math.exp(-dt / 0.5) + dV / dt * (dt / 0.5);
         } else if (p.runoff) p.runoff *= Math.exp(-dt / 0.5);
@@ -241,6 +249,8 @@
         const V = a.V + b.V;
         a.x = (a.x * a.V + b.x * b.V) / V; a.z = (a.z * a.V + b.z * b.V) / V;
         a.s = (a.s * a.V + b.s * b.V) / V;
+        a.T = ((a.T || 294) * a.V + (b.T || 294) * b.V) / V;
+        a.n = (a.n || 0) + (b.n || 0); a.salt = (a.salt || 0) + (b.salt || 0);
         a.r = Math.sqrt(a.r * a.r + b.r * b.r);                   // keeps the area of both, spreads on from there
         a.V = V;
       });
@@ -262,8 +272,8 @@
         const vlJam = p.vg * PHI_JAM / (1 - PHI_JAM);
         if (p.vl > vlJam) q += (p.vl - vlJam) * (1 - Math.exp(-dt / TAU_WET));
         q = Math.min(q, 0.9 * p.vl);
-        if (q > 0) { p.vl -= q; this.deposit(p.x, p.z, q, p.s); this.landedV -= q; }
-        if (p.vg < 1e-9) { if (p.vl > 0) { this.deposit(p.x, p.z, p.vl, p.s); this.landedV -= p.vl; } p.vl = 0; p.dead = true; continue; }
+        if (q > 0) { const dn = (p.n || 0) * q / Math.max(p.vl, 1e-15); p.n -= dn; p.vl -= q; this.deposit(p.x, p.z, q, p.s, dn); this.landedV -= q; }
+        if (p.vg < 1e-9) { if (p.vl > 0) { this.deposit(p.x, p.z, p.vl, p.s, p.n || 0); this.landedV -= p.vl; } p.vl = 0; p.n = 0; p.dead = true; continue; }
         this._shape(p, fl);
       }
       this.piles = this.piles.filter(p => !p.dead);
@@ -272,7 +282,7 @@
         a.x = (a.x * Va + b.x * Vb) / (Va + Vb); a.z = (a.z * Va + b.z * Vb) / (Va + Vb);
         a.R = (a.R * a.vg + b.R * b.vg) / Math.max(a.vg + b.vg, 1e-15);
         a.s = (a.s * a.vl + b.s * b.vl) / Math.max(a.vl + b.vl, 1e-15);
-        a.vg += b.vg; a.vl += b.vl;
+        a.vg += b.vg; a.vl += b.vl; a.n = (a.n || 0) + (b.n || 0);
         a.r = Math.max(a.r, b.r);
         this._shape(a, fl);
       });

@@ -503,6 +503,87 @@ section('Energy: once nothing drives it, every motion runs down');
 }
 
 // ---------------------------------------------------------------------------
+section('Time-lapse, flings and spills from the player\'s side');
+{
+  // nearly melted slivers bob fast; a 64× time-lapse step must not launch them
+  let thrown = 0;
+  seed(3);
+  const sim = new Simulation({ beverage: 'cola', iceCubes: 3 });
+  sim.on('iceThrown', () => thrown++);
+  sim.startPour(true);
+  for (let i = 0; i < 20 * 120; i++) sim.step(1 / 120);
+  for (const c of sim.ice.cubes) { c.m *= (0.004 / c.a) ** 3; c.a = 0.004; }
+  for (let t = 0; t < 600 && sim.ice.cubes.length; t += 1 / 30) sim.step(1 / 30);
+  expect('melting cubes are never "thrown" out of a standing glass at time-lapse steps', thrown === 0 && sim.ice.cubes.every(c => c.where === 'cup'),
+    `${thrown} thrown, ${sim.ice.cubes.filter(c => c.where !== 'cup').length} on the table`, 'cube motion sub-stepped below its bobbing period');
+}
+{
+  seed(4);
+  const sim = new Simulation({ beverage: 'club', iceCubes: 0, pourAmount: 300 });
+  sim.startPour(true);
+  for (let i = 0; i < 30 * 120; i++) sim.step(1 / 120);
+  const V0 = sim.liquid.V;
+  sim.params.tilt = 55;
+  for (let i = 0; i < 18; i++) sim.step(1 / 120);
+  sim.params.tilt = 0;
+  for (let i = 0; i < 4 * 120; i++) sim.step(1 / 120);
+  expect('a quick hard flick throws out most of the drink (the rim\'s meniscus lets go under the swing)', sim.liquid.V < 0.1 * V0,
+    `${ml(sim.liquid.V)} of ${ml(V0)} left`, 'meniscus pinning holds against g only: bulge × g/(g + a_swing)');
+}
+{
+  seed(5);
+  const sim = new Simulation({ beverage: 'cola', iceCubes: 0 });
+  sim.grabBottle(); sim.moveBottle(0.0375 + 0.06, 0.12); sim.tipBottle(110);
+  for (let i = 0; i < 6 * 120; i++) sim.step(1 / 120);
+  const d = sim.diagnostics();
+  expect('pouring straight onto the table is a miss, not a spill over the rim', d.missed > 100e-6 && d.overRim < 1e-7,
+    `missed ${ml(d.missed)}, over the rim ${ml(d.overRim)}`, 'achievement bookkeeping');
+  const n0 = d.tableCO2, fizz0 = Math.max(...sim.table.puddles.map(q => q.fizz || 0));
+  for (let i = 0; i < 300 * 30; i++) sim.step(1 / 30);
+  const n1 = sim.diagnostics().tableCO2;
+  expect('soda on the table fizzes and goes flat within minutes (a thin film: lots of surface)', fizz0 > 0 && n1 < 0.3 * n0,
+    `bubbling ${(fizz0 / 1e4).toFixed(1)} /cm²·s at first; CO₂ after 5 min ${(100 * n1 / n0).toFixed(0)} % of what landed`, 'k_L·c through the surface + wood-grain nucleation');
+}
+{
+  seed(5);
+  const sim = new Simulation({ beverage: 'cola', iceCubes: 0 });
+  sim.grabBottle(); sim.moveBottle(0.0375 + 0.06, 0.12); sim.tipBottle(110);
+  for (let i = 0; i < 6 * 120; i++) sim.step(1 / 120);
+  const q = sim.table.puddles.reduce((a, b) => (a.V > b.V ? a : b));
+  sim.dropMentos();
+  const m = sim.additives.mentos[sim.additives.mentos.length - 1];
+  Object.assign(m, { where: 'table', tx: q.x, ty: 0.003, tz: q.z, vx: 0, vy: 0, vz: 0 });
+  for (let i = 0; i < 10 * 120; i++) sim.step(1 / 120);
+  const pile = sim.table.piles.reduce((a, p) => a + p.vg + p.vl, 0);
+  expect('a Mentos dropped in a puddle froths it into a foam mound', pile > 1e-6,
+    `${ml(pile)} of foam on the table after 10 s`, 'the same Mentos nucleation as in the glass, wetted to the film depth');
+}
+{
+  const shake = (amp, hz, secs) => {
+    seed(1);
+    const sim = new Simulation({ beverage: 'cola', iceCubes: 0 });
+    sim.grabBottle(); sim.tipBottle(0);
+    for (let i = 0; i < 60; i++) sim.step(1 / 120);
+    const x0 = sim.pour.mouth.x, y0 = sim.pour.mouth.y;
+    for (let f = 0; f < secs * 60; f++) { sim.moveBottle(x0 + amp * Math.sin(2 * Math.PI * hz * f / 60), y0); sim.step(1 / 120); sim.step(1 / 120); }
+    return sim.diagnostics();
+  };
+  const gentle = shake(0.05, 0.5, 3), hard = shake(0.04, 6, 4);
+  expect('dragging the bottle slowly only sloshes it; shaking it hard foams it out of the neck and leaves it flatter',
+    gentle.bottleSpew < 1e-6 && hard.bottleSpew > 20e-6 && hard.cBottle < 0.9 * gentle.cBottle,
+    `gentle: ${ml(gentle.bottleSpew)} out; hard: ${ml(hard.bottleSpew)} out, bottle CO₂ ${(hard.cBottle / 44.6).toFixed(2)} vs ${(gentle.cBottle / 44.6).toFixed(2)} vol`,
+    'slosh mode breaking → trapped bubbles growing by diffusion (Epstein–Plesset)');
+}
+{
+  const sim = new Simulation({});
+  sim.grabBottle(); sim.moveBottle(0.01, 0.15); sim.releaseBottle();
+  for (let i = 0; i < 240; i++) sim.step(1 / 120);
+  const reach = sim.bottle.L * Math.sin(35 * Math.PI / 180), x = sim.pour.mouth.x, clear = sim.D / 2;
+  expect('a bottle let go of over the glass is set down clear of it, not hanging in front of it', x <= -clear || x - reach >= clear,
+    `lip at ${(x * 100).toFixed(1)} cm, glass ±${(clear * 100).toFixed(1)} cm`, 'UI');
+}
+
+// ---------------------------------------------------------------------------
 section('Conservation with everything that can leave the glass');
 {
   seed(6);

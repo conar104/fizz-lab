@@ -50,7 +50,8 @@
   // ---------------------------------------------------------------------
   const ACHIEVEMENTS = [
     { id: 'firstPour', name: 'First Pour', desc: 'Pour anything.', test: (d) => d.poured > 1e-6 },
-    { id: 'overflow', name: 'Oops', desc: 'Spill over the rim.', test: (d) => d.spilled > 1e-6 },
+    { id: 'overflow', name: 'Oops', desc: 'Spill over the rim.', test: (d) => d.overRim > 1e-6 },
+    { id: 'baby', name: 'Like a Baby', desc: 'Pour 200 ml straight onto the table, missing the glass.', test: (d) => d.missed > 200e-6 && d.missed > 0.9 * d.poured },
     { id: 'geyser', name: 'Geyser!', desc: 'Spill 100 ml of foam.', test: (d) => d.foamSpilled > 100e-6 },
     { id: 'tower', name: 'Foam Tower', desc: 'Build a 6 cm head.', test: (d) => d.foamH > 0.06 },
     { id: 'steady', name: 'Steady Hand', desc: 'Pour 250 ml with a head under 1 cm and no spill.',
@@ -59,7 +60,10 @@
       test: (d) => d.volume > 20e-6 && d.cVol < Simulation.FLAT_VOLUMES && d.poured > 20e-6 },
     { id: 'chill', name: 'Brain Freeze', desc: 'Get the soda below 1 °C.', test: (d) => d.volume > 20e-6 && d.Tliq < 1 },
     { id: 'meltdown', name: 'Meltdown', desc: 'Melt 20 g of ice.', test: (d) => d.iceMelted > 0.02 },
-    { id: 'avalanche', name: 'Avalanche', desc: 'Overfill the glass until ice tumbles out.', test: (d) => d.iceOnTable > 0 },
+    { id: 'avalanche', name: 'Avalanche', desc: 'Overfill the glass until ice tumbles out over the rim.', test: (d) => d.iceHeapedOut > 0 },
+    { id: 'curveball', name: 'Curveball', desc: 'Fling an ice cube clean out of the glass.', test: (d) => d.iceThrown > 0 },
+    { id: 'shaken', name: 'Shaken, Not Stirred', desc: 'Shake the bottle until it foams out of the neck.', test: (d) => d.bottleSpew > 5e-6 },
+    { id: 'tablefizz', name: 'Table Volcano', desc: 'Get a Mentos or salt fizzing in a puddle on the table.', test: (d) => d.tableFrothing > 0 },
     { id: 'altitude', name: 'Thin Air', desc: 'Pour above 2 000 m.', test: (d, s) => d.poured > 1e-6 && s.params.pressure < 79.5 },
     { id: 'perfect', name: 'Perfect Pour', desc: 'Score 900+ in a challenge round.', test: () => false },
   ];
