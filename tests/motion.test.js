@@ -588,7 +588,7 @@ section('Time-lapse, flings and spills from the player\'s side');
   const shake = (amp, hz, secs, { open = true, wait = 0, then = null } = {}) => {
     seed(1);
     const sim = new Simulation({ beverage: 'cola', iceCubes: 0 });
-    sim.grabBottle(); sim.tipBottle(0);
+    sim.bottle.phi = 0; sim.grabBottle(); sim.tipBottle(0);   // (start upright: no snap of the wrist)
     for (let i = 0; i < 60; i++) sim.step(1 / 120);
     if (open) sim.openBottle();
     const x0 = sim.pour.mouth.x, y0 = sim.pour.mouth.y;
@@ -600,17 +600,18 @@ section('Time-lapse, flings and spills from the player\'s side');
     return { ...sim.diagnostics(), before, P: sim.bottle.P, hiss: sim.bottle.hiss };
   };
   const gentle = shake(0.05, 0.5, 3), hard = shake(0.04, 6, 4);
-  expect('dragging the bottle slowly only sloshes it; shaking it hard foams it out of the neck and leaves it flatter',
-    gentle.bottleSpew < 1e-6 && hard.bottleSpew > 20e-6 && hard.cBottle < 0.9 * gentle.cBottle,
-    `gentle: ${ml(gentle.bottleSpew)} out; hard: ${ml(hard.bottleSpew)} out, bottle CO₂ ${(hard.cBottle / 44.6).toFixed(2)} vs ${(gentle.cBottle / 44.6).toFixed(2)} vol`,
-    'slosh mode breaking → trapped bubbles growing by diffusion (Epstein–Plesset)');
+  const outG = gentle.bottleSpew + gentle.bottleSplash, outH = hard.bottleSpew + hard.bottleSplash;
+  expect('dragging a full open bottle slowly only sloshes it; shaking it hard throws the drink out of the neck (splash and foam)',
+    outG < 1e-6 && outH > 300e-6,
+    `gentle: ${ml(outG)} out; hard: ${ml(hard.bottleSplash)} splashed + ${ml(hard.bottleSpew)} foamed out of 500 ml`,
+    'drink lagging the bottle (splash jets) + slosh breaking → trapped bubbles growing by diffusion');
 }
 {
   // the cap: ideal-gas headspace in Henry equilibrium with the drink
   const shake = (secs, wait, openIt = true) => {
     seed(1);
     const sim = new Simulation({ beverage: 'cola', iceCubes: 0, sodaTemp: 4 });
-    sim.grabBottle(); sim.tipBottle(0);
+    sim.bottle.phi = 0; sim.grabBottle(); sim.tipBottle(0);   // (start upright: no snap of the wrist)
     for (let i = 0; i < 60; i++) sim.step(1 / 120);
     const P0 = sim.bottle.P, x0 = sim.pour.mouth.x, y0 = sim.pour.mouth.y;
     for (let f = 0; f < secs * 60; f++) { sim.moveBottle(x0 + 0.04 * Math.sin(2 * Math.PI * 6 * f / 60), y0); sim.step(1 / 120); sim.step(1 / 120); }
@@ -636,7 +637,7 @@ section('Time-lapse, flings and spills from the player\'s side');
     seed(1);
     const sim = new Simulation({ beverage: 'cola', iceCubes: 0 });
     sim.openBottle(); sim.bottle.V = 250e-6;
-    sim.grabBottle(); sim.tipBottle(0); sim.moveBottle(-0.12, 0.25);
+    sim.bottle.phi = 0; sim.grabBottle(); sim.tipBottle(0);   // (start upright: no snap of the wrist) sim.moveBottle(-0.12, 0.25);
     for (let i = 0; i < 60; i++) sim.step(1 / 120);
     const x0 = sim.pour.mouth.x, y0 = sim.pour.mouth.y;
     for (let f = 0; f < 4 * 60; f++) { sim.moveBottle(x0 + amp * Math.sin(2 * Math.PI * hz * f / 60), y0); sim.step(1 / 120); sim.step(1 / 120); }

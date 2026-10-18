@@ -452,8 +452,7 @@
     _shakeBottle(dt) {
       const B = this.bottle, P = this.pour, T = B.type;
       const phi = B.phi * Math.PI / 180;
-      // driven by how the hand MOVES the bottle; turning it is already in the geometry (the
-      // level surface follows the tilt), and the hand turns it in steps a real wrist smooths out
+      // the mouth's own motion (what leaves it is launched with this velocity)
       const cx = P.mouth.x, cy = P.mouth.y;
       const S = this._shake || (this._shake = { x: cx, y: cy, vx: 0, vy: 0, ax: 0, ay: 0 });
       const k = 1 - Math.exp(-dt / 0.05);
@@ -464,14 +463,25 @@
       const kf = 1 - Math.exp(-dt / 0.017);
       S.fx = (S.fx || 0) + (vx - (S.fx || 0)) * kf; S.fy = (S.fy || 0) + (vy - (S.fy || 0)) * kf;
       S.vx = nvx; S.vy = nvy; S.x = cx; S.y = cy;
+      // ...and the drink's: it sits at the middle of its column, a distance back from the lip
+      // along the axis, so swinging the bottle about the mouth moves it too (ωr, α·r, ω²r)
+      const depth = Math.min(T.Lb, B.V / (Math.PI * T.R * T.R));
+      const back = B.L - 0.5 * depth;
+      const gx = cx - Math.sin(phi) * back, gy = cy - Math.cos(phi) * back;
+      if (S.gx === undefined) { S.gx = gx; S.gy = gy; S.gvx = 0; S.gvy = 0; S.gax = 0; S.gay = 0; S.gfx = 0; S.gfy = 0; }
+      const gvx = (gx - S.gx) / dt, gvy = (gy - S.gy) / dt;
+      const ngx = S.gvx + (gvx - S.gvx) * k, ngy = S.gvy + (gvy - S.gvy) * k;
+      S.gax += ((ngx - S.gvx) / dt - S.gax) * k; S.gay += ((ngy - S.gvy) / dt - S.gay) * k;
+      S.gfx += (gvx - S.gfx) * kf; S.gfy += (gvy - S.gfy) * kf;
+      S.gvx = ngx; S.gvy = ngy; S.gx = gx; S.gy = gy;
       // only a hand you drive moves it jerkily enough to matter: the automatic
       // pourer's glide is an animation (its velocity jumps are not real motion),
       // and a real pourer moves smoothly
       const held = !!P.manual;
-      const ax = held ? U.clamp(S.ax, -400, 400) : 0, ay = held ? U.clamp(S.ay, -400, 400) : 0;
+      const ax = held ? U.clamp(S.gax, -400, 400) : 0, ay = held ? U.clamp(S.gay, -400, 400) : 0;
       const fl = Props.fluid(this.bev, this.params.sodaTemp + C.T0);
       const mol = B.stepShake(dt, {
-        ax, ay, vx: held ? S.fx : 0, vy: held ? S.fy : 0, c: this.cBottle, kH: fl.kH, RT: C.R * fl.T, P: this.Pamb, mu: fl.mu, sigma: fl.sigma,
+        ax, ay, vx: held ? S.gfx : 0, vy: held ? S.gfy : 0, c: this.cBottle, kH: fl.kH, RT: C.R * fl.T, P: this.Pamb, mu: fl.mu, sigma: fl.sigma,
         burstTau: U.clamp(60 / Math.max(this.bev.burstRate || 1, 0.1), 3, 60),
       });
       this.stats.bottleCO2Out = (this.stats.bottleCO2Out || 0) + mol;

@@ -48,11 +48,13 @@
  *
  * SPLASHED OUT. Shaken hard, the walls slam into the drink faster than it can
  * follow (the bottle moves several centimetres, more than its own radius), and
- * colliding waves throw jets faster than the wall itself (wave focusing and
- * run-up; ×2.5, an estimate). The drink's velocity relative to the bottle, w,
+ * waves slamming the wall throw jets faster than the wall itself (the
+ * "flip-through" impacts of sloshing-tank studies give 2–5×; ×3 here, an
+ * estimate). It is the drink's own centre of mass that matters, so swinging the
+ * bottle about the mouth works as well as moving it. The drink's velocity relative to the bottle, w,
  * lags behind the bottle's: v_l' = (v_b − v_l)/τ (τ ≈ 0.08 s for the walls to drag it along;
- * estimate). Liquid thrown toward the mouth (all of w along the axis, half of
- * a side-on slam redirected up the wall into the shoulder) reaches the lip if
+ * estimate). Liquid thrown toward the mouth (w along the axis, and a side-on
+ * slam running up the wall into the shoulder and neck) reaches the lip if
  * ½U² > g·d, d the climb from the surface to the lip, and leaves at what is
  * left, √(U² − 2gd), through about half the mouth, plus the bottle's own speed.
  * So a gentle sway spills nothing, a hard shake empties even a half-empty
@@ -106,7 +108,7 @@
   const REST_ANGLE = 35;         // where the hand returns the bottle [deg]
   const MAX_ANGLE = 170;
   const RETURN_SPEED = 150;      // how fast the hand rights the bottle [deg/s]
-  const MANUAL_SPEED = 400;      // fastest a hand turns a held bottle to where you point it [deg/s] (estimate)
+  const MANUAL_SPEED = 1000;     // fastest a hand turns a held bottle to where you point it [deg/s] (a wrist flick reaches ~1000–2000)
   const SLICES = 90;
   const SLOSH_ZETA = 0.03;       // damping ratio of the bottle's first slosh mode (estimate)
   const SLOSH_BREAK = 0.45;      // surface steeper than this [rad] breaks and traps air (estimate)
@@ -117,7 +119,7 @@
   const D_CO2 = 1.9e-9;          // diffusivity of CO2 in the drink [m²/s]
   const FOAM_PHI = 0.15;         // liquid fraction of the foam they make in the headspace
   const SPLASH_TAU = 0.08;       // how fast the walls drag the drink along with the bottle [s] (estimate)
-  const SPLASH_AMP = 2.5;        // jets from colliding waves outrun the wall by this much (estimate)
+  const SPLASH_AMP = 3;          // jets from waves slamming a wall outrun it ~2–5× ("flip-through" impacts; estimate)
   const SPLASH_MOUTH = 0.5;      // share of the mouth a splash jet fills (estimate)
   const FOAM_EXIT_TAU = 0.2;     // foam standing above the lip flows out within this [s] (estimate)
 
@@ -230,7 +232,7 @@
       if (!this.sealed && this.V > 1e-7) {
         const ph = this.phi * Math.PI / 180, ox = Math.sin(ph), oy = Math.cos(ph);     // toward the mouth
         const wAx = this.wx * ox + this.wy * oy, wTr = Math.abs(-this.wx * oy + this.wy * ox);
-        const U = SPLASH_AMP * (Math.max(0, wAx) + 0.5 * wTr);
+        const U = SPLASH_AMP * (Math.max(0, wAx) + wTr);
         const lipLow = this.L * oy - t.r * Math.abs(ox);
         const d = Math.max(0, lipLow - (this.surface || 0));
         if (U * U > 2 * C.G * d) {
