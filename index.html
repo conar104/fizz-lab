@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=2026-10-17e">
+  <link rel="stylesheet" href="css/style.css?v=2026-10-17f">
 </head>
 <body class="mode-play">
   <header class="top">
@@ -38,6 +38,7 @@
           <button id="q-reset" title="Reset (R)">↺ RESET</button>
           <button id="q-upright" title="Stand the glass up (U)">⊥ UPRIGHT</button>
           <button id="q-clean" title="Clean the table (C)">✕ CLEAN</button>
+          <button id="q-cap" title="Pop the bottle's cap / put it back on (O) — or click the cap itself">◉ POP</button>
           <button id="q-stop" title="Stop pouring and stirring (Esc)">■ STOP</button>
           <button id="q-help" title="Keyboard shortcuts (?)">?</button>
         </div>
@@ -46,7 +47,7 @@
           <dl>
             <dt>SPACE</dt><dd>hold to pour (tip the bottle)</dd>
             <dt>A</dt><dd>auto-pour the set amount (again to stop)</dd>
-            <dt>O</dt><dd>twist the bottle's cap off / screw it back on (shake it sealed first…)</dd>
+            <dt>O · click the cap</dt><dd>pop the bottle's cap / screw it back on (shake it sealed first…)</dd>
             <dt>← →</dt><dd>tilt the glass 5° (or drag it; flick it hard to throw)</dd>
             <dt>U · double-click</dt><dd>stand the glass up</dd>
             <dt>I · M · S</dt><dd>drop ice · drop a Mentos · stir on/off</dd>
@@ -69,7 +70,7 @@
           <button id="btn-pour" class="big pour" title="Tips the bottle further while held (at the Tilt speed); let go and your hand rights it">HOLD <kbd>SPACE</kbd></button>
           <button id="btn-auto" class="big toggle" aria-pressed="false" title="Click to start pouring the set amount; click again to stop">
             <span id="auto-label">AUTO 330 ml</span> <kbd>A</kbd><i class="prog" id="auto-prog"></i></button>
-          <button id="btn-cap" title="Twist the cap off (a fresh bottle is sealed under ~2–5 bar of CO2) or screw it back on. Shake it sealed, then open it: gusher. Pouring opens it for you.">OPEN <kbd>O</kbd></button>
+          <button id="btn-cap" class="cap" title="Pop the cap off (or click the cap on the bottle). A fresh bottle is sealed under ~2–5 bar of CO2. Shake it sealed, then pop it: gusher. Press again to screw it back on.">POP CAP <kbd>O</kbd></button>
         </div>
         <div class="group">
           <span class="glabel">ADD</span>
@@ -205,27 +206,27 @@
     </aside>
   </main>
 
-  <script src="js/core/util.js?v=2026-10-17e"></script>
-  <script src="js/physics/constants.js?v=2026-10-17e"></script>
-  <script src="js/physics/properties.js?v=2026-10-17e"></script>
-  <script src="js/physics/nucleation.js?v=2026-10-17e"></script>
-  <script src="js/physics/jet.js?v=2026-10-17e"></script>
-  <script src="js/physics/bubbles.js?v=2026-10-17e"></script>
-  <script src="js/physics/foam.js?v=2026-10-17e"></script>
-  <script src="js/physics/ice.js?v=2026-10-17e"></script>
-  <script src="js/physics/capillary.js?v=2026-10-17e"></script>
-  <script src="js/physics/tilt.js?v=2026-10-17e"></script>
-  <script src="js/physics/bottle.js?v=2026-10-17e"></script>
-  <script src="js/physics/slosh.js?v=2026-10-17e"></script>
-  <script src="js/physics/table.js?v=2026-10-17e"></script>
-  <script src="js/physics/stream.js?v=2026-10-17e"></script>
-  <script src="js/physics/simulation.js?v=2026-10-17e"></script>
-  <script src="js/render/renderer.js?v=2026-10-17e"></script>
-  <script src="js/render/render3d.js?v=2026-10-17e"></script>
-  <script src="js/render/charts.js?v=2026-10-17e"></script>
-  <script src="js/ui/controls.js?v=2026-10-17e"></script>
-  <script src="js/ui/hud.js?v=2026-10-17e"></script>
-  <script src="js/game/game.js?v=2026-10-17e"></script>
-  <script src="js/main.js?v=2026-10-17e"></script>
+  <script src="js/core/util.js?v=2026-10-17f"></script>
+  <script src="js/physics/constants.js?v=2026-10-17f"></script>
+  <script src="js/physics/properties.js?v=2026-10-17f"></script>
+  <script src="js/physics/nucleation.js?v=2026-10-17f"></script>
+  <script src="js/physics/jet.js?v=2026-10-17f"></script>
+  <script src="js/physics/bubbles.js?v=2026-10-17f"></script>
+  <script src="js/physics/foam.js?v=2026-10-17f"></script>
+  <script src="js/physics/ice.js?v=2026-10-17f"></script>
+  <script src="js/physics/capillary.js?v=2026-10-17f"></script>
+  <script src="js/physics/tilt.js?v=2026-10-17f"></script>
+  <script src="js/physics/bottle.js?v=2026-10-17f"></script>
+  <script src="js/physics/slosh.js?v=2026-10-17f"></script>
+  <script src="js/physics/table.js?v=2026-10-17f"></script>
+  <script src="js/physics/stream.js?v=2026-10-17f"></script>
+  <script src="js/physics/simulation.js?v=2026-10-17f"></script>
+  <script src="js/render/renderer.js?v=2026-10-17f"></script>
+  <script src="js/render/render3d.js?v=2026-10-17f"></script>
+  <script src="js/render/charts.js?v=2026-10-17f"></script>
+  <script src="js/ui/controls.js?v=2026-10-17f"></script>
+  <script src="js/ui/hud.js?v=2026-10-17f"></script>
+  <script src="js/game/game.js?v=2026-10-17f"></script>
+  <script src="js/main.js?v=2026-10-17f"></script>
 </body>
 </html>

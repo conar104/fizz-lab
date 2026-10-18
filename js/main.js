@@ -296,6 +296,8 @@
   $('btn-mentos').onclick = () => sim.dropMentos();
   $('btn-salt').onclick = () => sim.addSalt();
   $('btn-cap').onclick = () => sim.toggleCap();
+  $('q-cap').onclick = () => sim.toggleCap();
+  sim.on('sealedTip', () => toast('The cap is on', 'A sealed bottle will not pour. Click the cap (or POP / O) to pop it.'));
   sim.on('bottleOpened', (o) => {
     const bar = (o.dP / 1e5).toFixed(1);
     if (o.Vb > 5e-6) toast('POP! Gusher!', `It was shaken: ${(o.Vb * 1e6).toFixed(0)} ml of trapped bubbles swelled as ${bar} bar vented, and the soda is suddenly supersaturated.`);
@@ -362,12 +364,14 @@
       return;
     }
     const onBottle = renderer.hitBottle(x, y);
-    view.classList.toggle('grab', !!onBottle);
-    view.style.cursor = onBottle ? '' : renderer.hitCup(x, y) ? 'ew-resize' : 'default';
+    view.classList.toggle('grab', !!onBottle && onBottle !== 'cap');
+    view.style.cursor = onBottle === 'cap' ? 'pointer' : onBottle ? '' : renderer.hitCup(x, y) ? 'ew-resize' : 'default';
+    view.title = onBottle === 'cap' ? 'Click to pop the cap' : '';
   });
   view.addEventListener('pointerdown', (e) => {
     const [x, y] = canvasXY(e);
     const part = renderer.hitBottle(x, y);
+    if (part === 'cap') { sim.openBottle(); e.preventDefault(); return; }
     if (part) {
       sim.grabBottle();
       const [wx, wy] = renderer.screenToWorld(x, y);
@@ -415,9 +419,12 @@
     if ($('auto-label').textContent !== label) $('auto-label').textContent = label;
     const done = auto ? 1 - (P.target - P.poured) / (amount * 1e-6) : 0;
     $('auto-prog').style.width = `${Math.max(0, Math.min(1, done)) * 100}%`;
-    const capLabel = sim.bottle.sealed ? 'OPEN' : 'CAP';
+    const capLabel = sim.bottle.sealed ? 'POP CAP' : 'RECAP';
     const cb = $('btn-cap');
     if (cb.firstChild.textContent.trim() !== capLabel) cb.firstChild.textContent = capLabel + ' ';
+    cb.classList.toggle('sealed', sim.bottle.sealed);
+    const qc = $('q-cap'), ql = sim.bottle.sealed ? '◉ POP' : '◎ RECAP';
+    if (qc.textContent !== ql) qc.textContent = ql;
     const st = sim.additives.stirring;
     $('btn-stir').classList.toggle('on', st);
     $('btn-stir').setAttribute('aria-pressed', st);

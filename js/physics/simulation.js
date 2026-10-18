@@ -53,6 +53,7 @@
   const ICE_KEEP_SPEED = 0.6;
   const FLAT_VOLUMES = 1.5;         // below this many volumes soda tastes flat (a convention)
   const S_STOP = 0.15;              // supersaturation below which bubbling effectively stops
+  const CAP = { mass: 2e-3, area: 7e-4, throw: 0.15e-3 };   // a PET screw cap: ~2 g, ~3 cm across; the gas pushes it over ~0.15 mm (estimate)
   const TABLE_SPLASH_LOSS = 0.15;   // share of CO2 a stream loses splashing onto the table (estimate)
   const MENTOS = { area: 11e-4, sink: 0.2, tau: 45, radius: 0.0095 };   // tau: rough candy shell dissolving [s]; Ø 19 mm
   /** A uniformly random point in a disc of radius r. */
@@ -152,6 +153,7 @@
 
 
       this.bottle = new Bottle(Bottle.TYPES[p.bottle] || Bottle.TYPES.pet500);
+      this.capFly = null;
       this.bubbles.clear();
       this.foam.clear();
       this.ice = new Ice.IcePile();
@@ -389,6 +391,7 @@
      */
     grabBottle() {
       const P = this.pour;
+      P.sealedHint = false;
       P.manual = { x: P.mouth.x, y: P.mouth.y, phi: this.bottle.phi };
       P.restSpot = null;
       P.active = false; P.auto = false;
@@ -418,14 +421,25 @@
     /** Twist the cap off (the hiss, and a gush if it was shaken). Returns false if it was already open. */
     openBottle() {
       const ok = this.bottle.open(this.Pamb);
-      if (ok) { this.stats.openedAt = this.time; this.emit('bottleOpened', this.bottle.opened); }
+      if (ok) {
+        this.stats.openedAt = this.time;
+        // the cap is shoved off by the gas: F = ΔP·A_mouth acting over the last
+        // ~0.15 mm of thread before the gas escapes round it (estimate), so
+        // ½mv² = ΔP·A·d; a ~2 g cap leaves at a few m/s along the bottle's axis
+        const B = this.bottle, phi = B.phi * Math.PI / 180, A = Math.PI * B.type.r ** 2;
+        const v = Math.min(4, Math.sqrt(2 * B.hiss * A * CAP.throw / CAP.mass));
+        const P = this.pour;
+        this.capFly = { x: P.mouth.x + Math.sin(phi) * 0.006, y: P.mouth.y + Math.cos(phi) * 0.006,
+          vx: Math.sin(phi) * v, vy: Math.cos(phi) * v, angle: phi, spin: 18, landed: false };   // (deterministic: no random draws that would shift a seeded run)
+        this.emit('bottleOpened', B.opened);
+      }
       return ok;
     }
     /** Put the cap back on. */
     capBottle() {
       const fl = Props.fluid(this.bev, this.params.sodaTemp + C.T0);
       const ok = this.bottle.seal(this.Pamb, C.R * fl.T);
-      if (ok) this.emit('bottleCapped');
+      if (ok) { this.capFly = null; this.emit('bottleCapped'); }
       return ok;
     }
     toggleCap() { return this.bottle.sealed ? (this.openBottle(), false) : (this.capBottle(), true); }
@@ -475,9 +489,25 @@
       }
     }
 
+    /** The popped cap in flight: gravity and a little air drag; it lands on the table and slides to a stop. */
+    _stepCap(dt) {
+      const c = this.capFly;
+      if (!c || c.landed) return;
+      const k = 0.5 * 1.2 * 1.0 * CAP.area / CAP.mass, sp = Math.hypot(c.vx, c.vy);
+      c.vx /= 1 + k * sp * dt; c.vy = (c.vy - C.G * dt) / (1 + k * sp * dt);
+      c.x += c.vx * dt; c.y += c.vy * dt; c.angle += c.spin * dt;
+      const floorY = this.pivotWorld()[1] + 0.004;
+      if (c.y <= floorY) {
+        c.y = floorY;
+        if (Math.abs(c.vy) > 0.6) { c.vy = -0.3 * c.vy; c.vx *= 0.6; c.spin *= 0.5; }   // a little bounce
+        else { c.vy = 0; c.vx *= 0.5; c.spin = 0; c.angle = Math.round(c.angle / Math.PI) * Math.PI; c.landed = Math.abs(c.vx) < 0.05; }
+      }
+    }
+
     /** Wipe the table: puddles, foam heaps, spilled ice, anything in the air. The glass is left as it is. */
     cleanTable() {
       this.table.clear();
+      if (this.capFly && this.capFly.landed) this.capFly = null;     // the cap is picked up too
       this.ice.cubes = this.ice.cubes.filter(c => c.where === 'cup');
       this.runs = [];
       this.emit('cleaned');
@@ -744,7 +774,9 @@
       // AUTO lets go once the amount has gone in; the stream then tails off
       if (P.active && P.auto && P.poured >= P.target) { this.stopPour(); this.emit('pourDone'); }
 
-      if (this.bottle.sealed && (P.active || (P.manual && this.bottle.head > 0))) this.openBottle();
+      if (this.bottle.sealed && P.active) this.openBottle();          // AUTO / HOLD: the pourer twists it off first
+      if (this.bottle.sealed && P.manual && this.bottle.head > 0 && !P.sealedHint) { P.sealedHint = true; this.emit('sealedTip'); }
+      this._stepCap(dt);
       this._shakeBottle(dt);
       // the bottle decides the flow: angle, liquid left, and air getting back in
       const gasFrac = this.bottle.gasFraction;

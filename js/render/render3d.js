@@ -508,8 +508,11 @@
     const pal = this.bevPalette(sim.bev);
     const dry = pal.foamDry, mid = pal.foamMid, edge = pal.foamEdge;
     const tick = Math.floor(t * 8);
-    // the glass's foot on the table: foam cannot be inside it, and what is behind it is drawn first
-    const foot = sim.worldToTable(0, 0)[0], Ro = sim.D / 2 + Math.max(sim.mat.wall, 1.5e-3);
+    // foam cannot be inside the glass: a column is left out only where its top is
+    // inside the glass as it stands now (tilted or not), so a glass swung over a
+    // heap no longer cuts a hole where its foot used to be
+    const Ro = sim.D / 2 + Math.max(sim.mat.wall, 1.5e-3), Hc = sim.H;
+    const insideGlass = (x, y, z) => { const [u, v] = sim.tableToCup(x, y); return v > -2e-3 && v < Hc && Math.hypot(u, z) < Ro; };
     for (const p of sim.table.piles) {
       if (!(p.r > 0) || !(p.h > 0)) continue;
       const stepX = 0.7 / PX, stepZ = 0.7 / (PX * Math.max(F.sp, 0.2));
@@ -519,8 +522,8 @@
         for (let a = -p.r; a <= p.r; a += stepX) {
           const rho = Math.hypot(a, b);
           if (rho >= p.r) continue;
-          if (Math.hypot(p.x + a - foot, zz) < Ro) continue;
           const hh = p.h * Math.sqrt(1 - rho / p.r);
+          if (insideGlass(p.x + a, hh, zz)) continue;
           const [X, Yb] = this._table(F, p.x + a, 0, p.z + b);
           const Yt = Yb - hh * F.cp * PX;
           const light = U.clamp(0.85 - 0.35 * (a / p.r) - 0.25 * (b / p.r) - 0.2 * rho / p.r, 0, 1);

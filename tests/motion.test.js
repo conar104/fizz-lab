@@ -220,7 +220,7 @@ section('The stream');
   // the bottle in your hand: you set the angle, the bottle physics sets the flow
   seed(3);
   const sim = new Simulation({ beverage: 'diet' });
-  sim.grabBottle(); sim.moveBottle(-0.02, sim.H + 0.06);
+  sim.openBottle(); sim.grabBottle(); sim.moveBottle(-0.02, sim.H + 0.06);
   for (let i = 0; i < 60; i++) sim.step(1 / 120);
   const flowAt = (phi) => { sim.tipBottle(phi); let q = 0, n = 0; for (let i = 0; i < 240; i++) { sim.step(1 / 120); if (i > 120) { q += sim.pour.Q; n++; } } return q / n; };
   const q70 = flowAt(70), q90 = flowAt(90), q150 = flowAt(150);
@@ -523,7 +523,7 @@ section('Time-lapse, flings and spills from the player\'s side');
   // a bottle tipped past horizontal glugs; its stream must arc out, not crawl round the lip
   seed(2);
   const sim = new Simulation({ beverage: 'cola' });
-  sim.grabBottle(); sim.moveBottle(-0.06, 0.16); sim.tipBottle(120);
+  sim.openBottle(); sim.grabBottle(); sim.moveBottle(-0.06, 0.16); sim.tipBottle(120);
   for (let i = 0; i < 3 * 120; i++) sim.step(1 / 120);
   const d = sim.diagnostics(), v = sim.bottle.exitJet().v;
   expect('a glugging pour from just outside the rim arcs into the glass, where the aim marker says',
@@ -559,7 +559,7 @@ section('Time-lapse, flings and spills from the player\'s side');
 {
   seed(5);
   const sim = new Simulation({ beverage: 'cola', iceCubes: 0 });
-  sim.grabBottle(); sim.moveBottle(0.0375 + 0.06, 0.12); sim.tipBottle(110);
+  sim.openBottle(); sim.grabBottle(); sim.moveBottle(0.0375 + 0.06, 0.12); sim.tipBottle(110);
   for (let i = 0; i < 6 * 120; i++) sim.step(1 / 120);
   const d = sim.diagnostics();
   expect('pouring straight onto the table is a miss, not a spill over the rim', d.missed > 100e-6 && d.overRim < 1e-7,
@@ -573,7 +573,7 @@ section('Time-lapse, flings and spills from the player\'s side');
 {
   seed(5);
   const sim = new Simulation({ beverage: 'cola', iceCubes: 0 });
-  sim.grabBottle(); sim.moveBottle(0.0375 + 0.06, 0.12); sim.tipBottle(110);
+  sim.openBottle(); sim.grabBottle(); sim.moveBottle(0.0375 + 0.06, 0.12); sim.tipBottle(110);
   for (let i = 0; i < 6 * 120; i++) sim.step(1 / 120);
   const q = sim.table.puddles.reduce((a, b) => (a.V > b.V ? a : b));
   sim.dropMentos();
@@ -631,6 +631,19 @@ section('Time-lapse, flings and spills from the player\'s side');
     `${ml(rested.gush)} vs ${ml(shook.gush)}`, 'Laplace pressure / air-limited dissolution');
 }
 {
+  // tipped by hand, a sealed bottle does not pour; popping the cap shoots it off and lets it pour
+  seed(3);
+  const sim = new Simulation({ beverage: 'cola' });
+  sim.grabBottle(); sim.moveBottle(-0.06, 0.17); sim.tipBottle(120);
+  for (let i = 0; i < 2 * 120; i++) sim.step(1 / 120);
+  const sealedPour = sim.pour.poured;
+  sim.openBottle();
+  let flew = 0; for (let i = 0; i < 2 * 120; i++) { sim.step(1 / 120); if (sim.capFly) flew = Math.max(flew, Math.hypot(sim.capFly.vx, sim.capFly.vy)); }
+  expect('a sealed bottle tipped by hand does not pour; popping the cap sends it flying and the pour starts',
+    sealedPour === 0 && sim.pour.poured > 50e-6 && flew > 1 && sim.capFly && sim.capFly.y < sim.pivotWorld()[1] + 0.01,
+    `${ml(sealedPour)} while sealed, ${ml(sim.pour.poured)} after; cap left at ${flew.toFixed(1)} m/s and landed`, 'ΔP·A·d = ½mv²');
+}
+{
   // the bottle stays exactly where you let go of it, wherever that is
   const sim = new Simulation({});
   let ok = true;
@@ -651,7 +664,7 @@ section('The glass, the table and the bottle are separate systems');
   const run = (busy) => {
     seed(4);
     const sim = new Simulation({ beverage: 'cola', iceCubes: 0, pourAmount: 120 });
-    sim.grabBottle(); sim.moveBottle(0.32, 0.12); sim.tipBottle(110);
+    sim.openBottle(); sim.grabBottle(); sim.moveBottle(0.32, 0.12); sim.tipBottle(110);
     for (let i = 0; i < 1 * 120; i++) sim.step(1 / 120);
     sim.tipBottle(0); sim.releaseBottle();
     for (let i = 0; i < 2 * 120; i++) sim.step(1 / 120);

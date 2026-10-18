@@ -81,6 +81,8 @@
       const rx = X + 0.5 - b.tipX, ry = (Y + 0.5 - b.tipY) / b.cp;
       const u = rx * b.dx + ry * b.dy, v = -rx * b.dy + ry * b.dx;
       if (u < -4 || u > b.lenPx + 2 || Math.abs(v) > b.halfPx + 4) return null;
+      // the cap (while it is on): its own few pixels, a little generous to make it easy to hit
+      if (b.capPx > 0 && u < b.capPx + 2 && Math.abs(v) < b.neckPx + 4) return 'cap';
       return u < 0.35 * b.lenPx ? 'neck' : 'body';
     }
 
@@ -310,6 +312,7 @@
       }
       if (this.view.mode !== '3d') this._drawStream(sim, F, t);   // (3-D draws it behind the glass)
       this._drawBottle(sim, F);
+      this._drawCapFly(sim, F);
       this._drawDrops(sim, F);
       this._drawAimMarker(sim, F, t);
       this._drawFx(sim, F, realDt);
@@ -691,7 +694,7 @@
       const edge = glassBottle ? P.teal : P.silver, air = glassBottle ? pack([52, 92, 88]) : P.slate;   // the headspace air
       const lipH = B.L * Math.cos(phi);                      // lip-centre height in the bottle frame
       const lenPx = B.L * PX, reach = lenPx + T.R * PX + 2;
-      this._bottleGeom = { tipX, tipY, dx, dy, lenPx, halfPx: T.R * PX, cp: F.cp };
+      this._bottleGeom = { tipX, tipY, dx, dy, lenPx, halfPx: T.R * PX, neckPx: T.r * PX, cp: F.cp, capPx: B.sealed ? 0.012 * PX : 0 };
       const labelS0 = 0.35 * T.Lb, labelS1 = 0.8 * T.Lb, stripeS = 0.575 * T.Lb;
       // the cap (sealed bottle): a ribbed screw cap ~12 mm over the neck
       const capOn = B.sealed, capPx = 0.012 * PX, capC = stripe, capEdge = pack(mix(unpackRGB(stripe), [0, 0, 0], 0.35));
@@ -741,6 +744,20 @@
           const X = Math.round(tipX + ux * r0 * 0.8 + Math.cos(a) * rr), Y = Math.round(tipY + uy * r0 * 0.8 + Math.sin(a) * rr * 0.7);
           if (U.hash2(i, Math.floor(since * 30)) < k) this.blend(X, Y, RGB.white, 0.5 * k);
         }
+      }
+    }
+
+    /** The popped cap, flying or lying on the table: a small ribbed disc seen edge-on, spinning. */
+    _drawCapFly(sim, F) {
+      const c = sim.capFly;
+      if (!c) return;
+      const [X, Y] = this._world(F, c.x, c.y);
+      const col = this.colorOf(sim.bev.stripe).p, dark = pack(mix(unpackRGB(col), [0, 0, 0], 0.35));
+      const w = Math.max(2, 0.016 * PX), h = Math.max(1.5, 0.012 * PX);
+      const ca = Math.cos(c.angle), sa = Math.sin(c.angle);
+      for (let a = -w / 2; a <= w / 2; a += 0.5) for (let b = -h / 2; b <= h / 2; b += 0.5) {
+        const x = Math.round(X + a * ca + b * sa), y = Math.round(Y - (-a * sa + b * ca) * F.cp);
+        this.px(x, y, Math.abs(b) > h / 2 - 0.6 || Math.abs(a) > w / 2 - 0.6 ? dark : col);
       }
     }
 

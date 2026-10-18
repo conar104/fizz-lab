@@ -162,6 +162,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* ---------- quick bar, help card ---------- */
 .quickbar { position: absolute; left: 2.5%; bottom: 2.5%; display: flex; gap: 4px; opacity: .72; transition: opacity .15s; }
 .quickbar:hover, .quickbar:focus-within { opacity: 1; }
+#btn-cap.sealed { box-shadow: inset 0 0 0 2px #f4d35e; }
 .quickbar button { padding: 4px 7px; font-size: clamp(12px, 2.6cqw, 17px); background: rgba(51, 60, 87, .92); }
 .actions .reset { background: var(--red); }
 .actions .reset:hover { background: #c9506a; }
