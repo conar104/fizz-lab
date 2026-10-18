@@ -2078,6 +2078,8 @@
       this.table.bevNow = this.bev;                               // what leaves the glass now is this drink
       const back = this.table.step(dt, {
         fl, bev: this.bev, fragility: Foam.fragility, Tdrop: this.liquid.T,
+        // each puddle / heap is its own liquid: its drink, how watered down, its temperature
+        fluidOf: (q) => Props.fluid(Props.dilute(q.bev || this.bev, U.clamp(q.s ?? 1, 0.01, 1)), q.T || (this.params.roomTemp + C.T0)),
         catchCup: (x, y, z) => { const [u, v] = this.tableToCup(x, y); return v < H && v > 0 && u * u + z * z < R * R; },
         // a drop just inside the open mouth of the bottle, moving into it (in the bottle's own frame)
         catchBottle: (d) => {

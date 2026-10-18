@@ -602,7 +602,7 @@ section('Time-lapse, flings and spills from the player\'s side');
   const gentle = shake(0.05, 0.5, 3), hard = shake(0.04, 6, 4);
   const outG = gentle.bottleSpew + gentle.bottleSplash, outH = hard.bottleSpew + hard.bottleSplash;
   expect('dragging a full open bottle slowly only sloshes it; shaking it hard throws the drink out of the neck (splash and foam)',
-    outG < 1e-6 && outH > 300e-6,
+    outG < 1e-6 && outH > 200e-6,
     `gentle: ${ml(outG)} out; hard: ${ml(hard.bottleSplash)} splashed + ${ml(hard.bottleSpew)} foamed out of 500 ml`,
     'drink lagging the bottle (splash jets) + slosh breaking → trapped bubbles growing by diffusion');
 }
@@ -622,7 +622,7 @@ section('Time-lapse, flings and spills from the player\'s side');
     for (let i = 0; i < 6 * 120; i++) sim.step(1 / 120);
     return { P0, sealedSpew, gush: sim.diagnostics().gushV, hiss: sim.bottle.hiss };
   };
-  const still = shake(0, 0), shook = shake(4, 0), rested = shake(4, 180);
+  const still = shake(0, 0), shook = shake(4, 0), rested = shake(4, 300);
   expect('a fresh cold bottle holds ~2–3 bar of CO₂ over the drink (Henry + ideal gas), and opening it unshaken only hisses',
     still.P0 > 2.5e5 && still.P0 < 4.5e5 && still.gush < 30e-6,
     `${(still.P0 / 1e5).toFixed(2)} bar absolute, ${ml(still.gush)} out on opening`, 'P = nRT/V, c = k_H·P_CO2');
@@ -633,20 +633,47 @@ section('Time-lapse, flings and spills from the player\'s side');
 }
 {
   // shaking an open, half-empty bottle: a sway spills nothing, a hard enough shake throws it all out
-  const shakeOut = (amp, hz) => {
+  const shakeOut = (amp, hz, phi0, dir = [1, 0], secs = 6) => {
     seed(1);
     const sim = new Simulation({ beverage: 'cola', iceCubes: 0 });
-    sim.openBottle(); sim.bottle.V = 250e-6;
-    sim.bottle.phi = 0; sim.grabBottle(); sim.tipBottle(0);   // (start upright: no snap of the wrist) sim.moveBottle(-0.12, 0.25);
+    sim.openBottle(); sim.bottle.V = 250e-6; sim.bottle.phi = phi0;
+    sim.grabBottle(); sim.tipBottle(phi0); sim.moveBottle(-0.12, 0.25);
     for (let i = 0; i < 60; i++) sim.step(1 / 120);
     const x0 = sim.pour.mouth.x, y0 = sim.pour.mouth.y;
-    for (let f = 0; f < 4 * 60; f++) { sim.moveBottle(x0 + amp * Math.sin(2 * Math.PI * hz * f / 60), y0); sim.step(1 / 120); sim.step(1 / 120); }
+    for (let f = 0; f < secs * 60; f++) { const o = amp * Math.sin(2 * Math.PI * hz * f / 60); sim.moveBottle(x0 + dir[0] * o, y0 + dir[1] * o); sim.step(1 / 120); sim.step(1 / 120); }
     return sim.bottle.V;
   };
-  const sway = shakeOut(0.05, 1), hard = shakeOut(0.06, 7);
-  expect('an open half-empty bottle: a gentle sway spills nothing; shaken hard enough, the drink is splashed out of the mouth',
-    sway > 249e-6 && hard < 0.1 * 250e-6, `sway: ${ml(sway)} left of 250 ml; 6 cm at 7 Hz for 4 s: ${ml(hard)} left`,
-    'relative motion of the drink vs the bottle; ½U² > g·d to reach the lip');
+  const sway = shakeOut(0.05, 1, 0), upright = shakeOut(0.06, 7, 0), tipped = shakeOut(0.06, 6, 100, [0, 1]);
+  expect('an open half-empty bottle: a sway spills nothing; a hard shake upright only splashes some out of the narrow neck; tipped mouth-down, a hard shake empties it',
+    sway > 249e-6 && upright > 100e-6 && upright < 240e-6 && tipped < 10e-6,
+    `sway: ${ml(sway)} left of 250 ml; hard upright: ${ml(upright)} left; hard, tipped 100°: ${ml(tipped)} left`,
+    'run-up h = C·w²/2g must reach the lip; the drink against the effective gravity');
+}
+{
+  // the invariant behind it all: nothing leaves the bottle unless the drink, its run-up
+  // sheet or its foam is at the lip — checked over a spread of shakes, fills and angles
+  let bad = 0, events = 0;
+  for (const [phi0, fill, amp, hz, dir] of [[0, 480e-6, 0.04, 4, [1, 0]], [0, 250e-6, 0.06, 6, [0, 1]], [45, 250e-6, 0.06, 4, [1, 1]],
+    [80, 100e-6, 0.04, 3, [1, 0]], [80, 250e-6, 0.06, 6, [0, 1]], [0, 100e-6, 0.06, 6, [1, 0]]]) {
+    seed(1);
+    const sim = new Simulation({ beverage: 'cola', iceCubes: 0 });
+    sim.openBottle(); sim.bottle.V = fill; sim.bottle.phi = phi0; sim.grabBottle(); sim.tipBottle(phi0); sim.moveBottle(-0.12, 0.25);
+    for (let i = 0; i < 60; i++) sim.step(1 / 120);
+    const x0 = sim.pour.mouth.x, y0 = sim.pour.mouth.y, n = Math.hypot(dir[0], dir[1]);
+    for (let f = 0; f < 120; f++) {
+      const o = amp * Math.sin(2 * Math.PI * hz * f / 60) / n;
+      sim.moveBottle(x0 + dir[0] * o, y0 + dir[1] * o);
+      for (let k = 0; k < 2; k++) {
+        const d0 = sim.diagnostics(), p0 = sim.pour.poured;
+        sim.step(1 / 120);
+        const d1 = sim.diagnostics(), B = sim.bottle;
+        if (sim.pour.poured > p0 + 1e-10 || d1.bottleSplash > d0.bottleSplash + 1e-10) { events++; if (B.reach < -2e-3) bad++; }
+        if (d1.bottleSpew > d0.bottleSpew + 1e-10) { events++; if ((B.foamTop || 0) < B.lipEff - 2e-3 && B.hEff < B.lipEff - 2e-3) bad++; }
+      }
+    }
+  }
+  expect('nothing leaves a shaken bottle unless the drink, its run-up sheet or its foam has reached the lip (what you see leave is what got there)',
+    events > 100 && bad <= 0.002 * events, `${bad} of ${events} exits with nothing at the lip`, 'drawing and outflow share one geometry');
 }
 {
   // tipped by hand, a sealed bottle does not pour; popping the cap shoots it off and lets it pour

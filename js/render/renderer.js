@@ -407,9 +407,16 @@
           const n = Math.max(1, Math.min(3, Math.round(Math.cbrt(d.V + d.vg) * PX * 0.6)));
           for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) this.px(x + i, y + j, (i + j) % 3 ? pack(pal.foamDry) : pack(pal.foamEdge));
         } else {
-          const c = pack(this._wetColor(sim, d.s));
-          this.px(x, y, c);
-          if (d.V > 1e-7) this.px(x, y - 1, pack(mix(this._wetColor(sim, d.s), RGB.white, 0.4)));
+          // a flying blob of drink: as thick as the drop it holds, smeared along its flight
+          // over ~1/60 s (the motion blur a frame shows), highlighted on its leading edge
+          const c = pack(this._wetColor(sim, d.s)), hi = pack(mix(this._wetColor(sim, d.s), RGB.white, 0.45));
+          const dia = Math.cbrt(6 * d.V / Math.PI) * PX, th = Math.max(1, Math.min(3, Math.round(dia)));
+          const sx = d.vx * PX / 60, sy = -d.vy * F.cp * PX / 60, len = Math.min(8, Math.hypot(sx, sy));
+          const n = Math.max(1, Math.ceil(len));
+          for (let k = 0; k <= n; k++) {
+            const f = k / n, px = Math.round(X - sx * f * (len / Math.max(Math.hypot(sx, sy), 1e-9))), py = Math.round(Y - sy * f * (len / Math.max(Math.hypot(sx, sy), 1e-9)));
+            for (let j = 0; j < th; j++) for (let i = 0; i < th; i++) this.px(px + i - (th >> 1), py + j - (th >> 1), k === 0 ? hi : c);
+          }
         }
       }
     }
@@ -698,10 +705,16 @@
       const labelS0 = 0.35 * T.Lb, labelS1 = 0.8 * T.Lb, stripeS = 0.575 * T.Lb;
       // the cap (sealed bottle): a ribbed screw cap ~12 mm over the neck
       const capOn = B.sealed, capPx = 0.012 * PX, capC = stripe, capEdge = pack(mix(unpackRGB(stripe), [0, 0, 0], 0.35));
-      // sloshing, bubbles and foam in the bottle (bottle.js)
-      const slT = Math.tan(B.slosh || 0), midX = tipX + dx * lenPx * 0.6;
+      // the drink in the bottle, drawn from exactly the geometry the physics uses
+      // (bottle.js): its surface is the plane that holds its volume with the
+      // bottle tipped by ψ = φ + slosh against it; the foam sits on it up to its
+      // own level; a slam's run-up sheet climbs the wall it was thrown at (or a jet
+      // up the middle, for a jolt along the axis), with spray at its tip
+      const psi = B.psi != null ? B.psi : phi, cPsi = Math.cos(psi), sPsi = Math.sin(psi);
+      const hE = B.hEff != null ? B.hEff : B.surface;
       const bub = Math.min(0.15, (B.gasFraction || 0) * 0.6), frame = Math.floor(sim.time * 12);
-      const foamH = B.foamG + B.foamL > 1e-10 ? Math.max(0, (B.foamTop || 0) - (B.surface || 0)) : 0;
+      const foamOn = B.foamG + B.foamL > 1e-10, fTop = B.foamTop || hE;
+      const run = B.V > 1e-9 ? (B.runUp || 0) : 0, axial = (B.runAxial || 0) > 0.5, side = B.runSide || 1;
       const bpal = this.bevPalette(sim.bev), foamC = pack(bpal.foamMid), foamE = pack(bpal.foamEdge);
       const ringS = B.L - 0.012;                             // neck support ring
       const x0 = Math.floor(tipX - reach), x1 = Math.ceil(tipX + reach);
@@ -720,17 +733,30 @@
           let c;
           if (capOn && u < capPx && av <= half + 1) c = av > half - 0.5 || u < 1 ? capEdge : capC;   // the cap
           else if (u < 1.5 || av > half - 1) c = edge;       // lip and wall
-          else if (s > labelS0 && s < labelS1) {
-            c = Math.abs(s - stripeS) < 0.006 ? stripe : label;
-          } else {
-            // the surface tilts as the drink sloshes (about the middle of the drink)
-            const yh = lipH + (tipY - y - 0.5) / (PX * F.cp);
-            const surf = B.surface + slT * (x + 0.5 - midX) / PX;
-            const full = B.V > 0 && yh < surf;
+          else {
+            const onLabel = s > labelS0 && s < labelS1;
+            // height of this point against the drink's own surface (bottle frame: s along
+            // the axis from the base, w across it, + toward the side that goes down as it tips)
+            const w = -v / PX, yE = s * cPsi - w * sPsi;
+            const full = B.V > 0 && yE < hE;
+            c = air;
             if (full) {
               c = av < Math.max(1, half * 0.25) && s < T.Lb ? liqHi : liquid;
               if (bub > 0 && U.hash2(x * 5 + frame, y * 3 - frame) < bub) c = foamC;    // fine bubbles all through it
-            } else c = B.V > 0 && yh < surf + foamH ? (U.hash2(x, y) < 0.2 ? foamE : foamC) : air;
+            } else if (run > 1e-3 && yE < hE + run) {
+              // the run-up: a sheet thinning as it climbs the wall, or a jet up the middle
+              const f = (yE - hE) / run, rr = r;
+              const sheet = axial ? Math.abs(w) < (0.0015 + 0.004 * (1 - f)) : side * w > rr - (0.0015 + 0.005 * (1 - f));
+              if (sheet) c = U.hash2(x, y + frame) < 0.15 ? liqHi : liquid;
+              else if (U.hash2(x * 7 + frame, y * 5) < 0.06 * (1 - f) + (f > 0.7 ? 0.04 : 0)) c = liqHi;   // spray off its tip
+            }
+            if (!full && c === air && foamOn && B.V > 0 && yE < fTop) c = U.hash2(x, y) < 0.2 ? foamE : foamC;
+            if (full && yE > hE - 1.2 / PX) c = liqHi;                  // the surface line: the slosh reads at a glance
+            // a thin printed label: the drink shows through it, so you can see where it is
+            if (onLabel) {
+              const lab = Math.abs(s - stripeS) < 0.006 ? stripe : label;
+              c = pack(mix(unpackRGB(lab), unpackRGB(c), c === air ? 0.15 : 0.45));
+            }
           }
           this.px(x, y, c);
         }

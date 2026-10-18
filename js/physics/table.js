@@ -115,6 +115,17 @@
      * Returns the film volume this newly wetted (the caller takes it from
      * whatever liquid it has; avail caps it).
      */
+    /** Add a given volume of film over a disc (joined to the patch it overlaps). */
+    addFilm(x, z, r, s, V) {
+      if (!(V > 0)) { this.wetMark(x, z, r, s, 0); return; }
+      const got = this.wetMark(x, z, r, s, V);
+      if (got < V) {                                              // already wet there: thicken that patch instead
+        let m = null, best = Infinity;
+        for (const q of this.marks) { const d = Math.hypot(q.x - x, q.z - z); if (d < best) { best = d; m = q; } }
+        if (m) { m.V += V - got; m.Vmax = Math.max(m.Vmax, m.V); }
+      }
+    }
+
     wetMark(x, z, r, s, avail = Infinity) {
       if (!(r > 1e-3)) return 0;
       // the same patch, or one it mostly covers: grow that one
@@ -278,21 +289,26 @@
 
       // spreading (Huppert), capped at the resting radius; the back edge cuts the
       // wetted area, so a puddle against it spreads further along it
-      const K = huppertK(fl.rho, fl.mu);
-      const hEq = puddleHeight(fl.sigma, fl.rho);
-      const hEdge = Fizz.Capillary.rimOverfill(fl, THETA_TABLE * 180 / Math.PI);
+      // each puddle spreads as its own liquid (its drink, how watered down, its temperature)
+      const own = (q) => (ctx.fluidOf ? ctx.fluidOf(q) : fl);
       const evap = EVAP * Math.exp(0.06 * ((this.Troom || 293) - 293)) * dt;
       for (const p of this.puddles) {
         p.age += dt;
+        const pf = own(p);
+        const K = huppertK(pf.rho, pf.mu), hEq = puddleHeight(pf.sigma, pf.rho);
+        const hEdge = Fizz.Capillary.rimOverfill(pf, THETA_TABLE * 180 / Math.PI);
         // the ground under a puddle is wet; when it moves on, that stays (film from the puddle)
         if (p.r > (p.markR || 0) * 1.08 || Math.hypot(p.x - (p.markX ?? p.x), p.z - (p.markZ ?? p.z)) > 0.3 * p.r) {
-          const film = this.wetMark(p.x, p.z, p.r, p.s, 0.05 * p.V);
-          p.V -= film; p.markR = p.r; p.markX = p.x; p.markZ = p.z;
+          // the film this puddle leaves is set by its own new footprint alone (so what
+          // happens elsewhere on the table cannot change it), then joins the wet marks
+          const film = Math.min(0.05 * p.V, Math.max(0, Math.PI * (p.r * p.r - (p.markR || 0) ** 2)) * FILM_H);
+          p.V -= film; this.addFilm(p.x, p.z, p.r, p.s, film);
+          p.markR = p.r; p.markX = p.x; p.markZ = p.z;
         }
         const dvE = Math.min(p.V, evap * (p.wet || Math.PI * p.r * p.r));
         if (dvE > 0) { p.V -= dvE; this.evapV += dvE; this.landedV -= dvE; }
         const d = p.z - EDGE.back;
-        let rRest = restRadius(Math.max(p.V, 1e-12), fl.sigma, fl.rho);
+        let rRest = restRadius(Math.max(p.V, 1e-12), pf.sigma, pf.rho);
         if (d < rRest) {                                        // solve V = h_eq·A_wet(r) for r
           let lo = rRest, hi = Math.max(1, rRest * 4);
           for (let it = 0; it < 30; it++) { const mid = 0.5 * (lo + hi); if (hEq * areaOnTable(mid, d) < p.V) lo = mid; else hi = mid; }
@@ -335,15 +351,18 @@
         const V = p.vg + p.vl, phi = p.vl / Math.max(V, 1e-15);
         const area = Math.PI * p.r * p.r;
         // (d) bursting: one bubble diameter per bubble lifetime, faster once dried below φc
-        const severity = Math.exp(Math.min(3 * (bev.criticalPhi / Math.max(phi, 1e-5) - 1), 20));
-        const pb = p.bev || bev;
+        const pb = p.bev || bev, pf = ctx.fluidOf ? ctx.fluidOf(p) : fl;
+        const severity = Math.exp(Math.min(3 * (pb.criticalPhi / Math.max(phi, 1e-5) - 1), 20));
         const kBurst = Math.min(MAX_RATE, PILE_BURST * pb.burstRate * severity * (ctx.fragility ? ctx.fragility(p.s) : 1));
-        if (p.r > (p.markR || 0) * 1.08) { const film = this.wetMark(p.x, p.z, p.r, p.s, 0.3 * p.vl); p.vl -= film; p.markR = p.r; }
+        if (p.r > (p.markR || 0) * 1.08) {                          // its footprint stays damp (film set by its own footprint)
+          const film = Math.min(0.3 * p.vl, Math.max(0, Math.PI * (p.r * p.r - (p.markR || 0) ** 2)) * FILM_H);
+          p.vl -= film; this.addFilm(p.x, p.z, p.r, p.s, film); p.markR = p.r;
+        }
         p.vg = Math.max(0, p.vg - kBurst * 2 * p.R * area * 0.5 * dt);   // the mound's top ≈ half its footprint
         // (e) drainage: Darcy through the Plateau borders (rigid/mobile blend) plus excess wet liquid
         const pe = Math.min(phi, PHI_JAM), D2 = 4 * p.R * p.R;
-        const perm = (1 - bev.mobility) * 8.0e-4 * D2 * pe * pe + bev.mobility * 6.7e-4 * D2 * Math.pow(pe, 1.5);
-        let q = perm * fl.rho * C.G / fl.mu * area * dt;
+        const perm = (1 - pb.mobility) * 8.0e-4 * D2 * pe * pe + pb.mobility * 6.7e-4 * D2 * Math.pow(pe, 1.5);
+        let q = perm * pf.rho * C.G / pf.mu * area * dt;
         const vlJam = p.vg * PHI_JAM / (1 - PHI_JAM);
         if (p.vl > vlJam) q += (p.vl - vlJam) * (1 - Math.exp(-dt / TAU_WET));
         q = Math.min(q, 0.9 * p.vl);
@@ -351,7 +370,7 @@
         if (q > 0) { const dn = (p.n || 0) * q / Math.max(p.vl, 1e-15); p.n -= dn; p.vl -= q; this.deposit(p.x, p.z, q, p.s, dn); this.landedV -= q; }
         if (p.vg < 1e-9) { if (p.vl > 0) { this.deposit(p.x, p.z, p.vl, p.s, p.n || 0); this.landedV -= p.vl; } p.vl = 0; p.n = 0; p.dead = true; this.bevNow = keep; continue; }
         this.bevNow = keep;
-        this._shape(p, fl);
+        this._shape(p, pf);
       }
       this.piles = this.piles.filter(p => !p.dead);
       // films dry; sugar stays behind as a sticky stain (darkest at the rim)
@@ -371,7 +390,7 @@
         a.s = (a.s * a.vl + b.s * b.vl) / Math.max(a.vl + b.vl, 1e-15);
         a.vg += b.vg; a.vl += b.vl; a.n = (a.n || 0) + (b.n || 0);
         a.r = Math.max(a.r, b.r);
-        this._shape(a, fl);
+        this._shape(a, ctx.fluidOf ? ctx.fluidOf(a) : fl);
       });
       return back;
     }

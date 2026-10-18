@@ -46,21 +46,26 @@
  * glug rates scale as √g). A half-empty bottle shaken hard enough throws its
  * drink out of the mouth on every stroke, with the bottle's own speed.
  *
- * SPLASHED OUT. Shaken hard, the walls slam into the drink faster than it can
- * follow (the bottle moves several centimetres, more than its own radius), and
- * waves slamming the wall throw jets faster than the wall itself (the
- * "flip-through" impacts of sloshing-tank studies give 2–5×; ×3 here, an
- * estimate). It is the drink's own centre of mass that matters, so swinging the
- * bottle about the mouth works as well as moving it. The drink's velocity relative to the bottle, w,
- * lags behind the bottle's: v_l' = (v_b − v_l)/τ (τ ≈ 0.08 s for the walls to drag it along;
- * estimate). Liquid thrown toward the mouth (w along the axis, and a side-on
- * slam running up the wall into the shoulder and neck) reaches the lip if
- * ½U² > g·d, d the climb from the surface to the lip, and leaves at what is
- * left, √(U² − 2gd), through about half the mouth, plus the bottle's own speed.
- * So a gentle sway spills nothing, a hard shake empties even a half-empty
- * bottle in seconds, and a nearly empty one (a longer climb) is harder.
+ * RUN-UP AND SPLASH. Shaken hard, the walls slam into the drink faster than it
+ * can follow (the bottle moves several centimetres, more than its own radius).
+ * Liquid hitting a wall at relative speed w runs up it to h ≈ C_r·w²/2g, with
+ * C_r ≈ 2 for a wave meeting a wall (stagnation plus the reflected wave
+ * stacking up; dam-break run-up studies give 2–3; estimate). A vertical jolt
+ * throws a jet up the middle instead. The sheet climbs at its own speed and
+ * falls back under gravity. Liquid only leaves the bottle once the sheet (or
+ * the drink itself) has reached the lip, at what speed it has left there,
+ * √(2g(h − d)), thinning toward the sheet's tip. It is the drink's own centre of
+ * mass that matters, so swinging the bottle about the mouth works as well as
+ * moving it. The drawing uses the same surface, sheet and jet, so what you see
+ * leave the bottle is what has reached the mouth.
+ *   The drink's velocity lags the bottle's, v_l' = (v_b − v_l)/τ (τ ≈ 0.08 s
+ * for the walls to drag it along; estimate); w = v_l − v_b. A side-on slam
+ * only partly turns up into the shoulder and neck (60 %, estimate); a jolt
+ * along the axis aims straight at the mouth. Breaking waves lose their energy
+ * (strong damping) but do not move the surface, and the surface cannot tilt
+ * more than ~70° inside the bottle.
  *
- * SHAKING. A surface driven past ~25° that overturns faster than ~0.15 m/s
+ * SHAKING. A surface driven past ~25° that overturns faster than ~0.3 m/s
  * breaks and traps air as fine bubbles (~20 µm; estimate: entrained gas ∝ the
  * breaking edge's speed). In supersaturated soda each one is a ready-made
  * nucleus: it grows by diffusion of CO2 into it (Epstein–Plesset, Sh = 2),
@@ -112,15 +117,17 @@
   const SLICES = 90;
   const SLOSH_ZETA = 0.03;       // damping ratio of the bottle's first slosh mode (estimate)
   const SLOSH_BREAK = 0.45;      // surface steeper than this [rad] breaks and traps air (estimate)
-  const ENTRAIN = 0.02;          // air trapped per (surface area × breaking-edge speed) (estimate)
-  const BREAK_SPEED = 0.15;      // a wave must hit the wall at least this fast to trap air [m/s] (estimate)
+  const SLOSH_MAX = 1.2;         // the free surface cannot tilt further than this inside the bottle [rad] (estimate)
+  const ENTRAIN = 0.004;         // air trapped per (surface area × breaking-edge speed) (estimate)
+  const BREAK_SPEED = 0.3;       // a wave must overturn at least this fast to trap air [m/s] (estimate)
   const R_TRAPPED = 20e-6;       // radius of the bubbles a breaking wave traps [m] (estimate; shaken soda clouds with 10–50 µm bubbles)
   const DISSOLVE_TAU = 30;       // a 20 µm trapped bubble dissolves back into a drink at equilibrium in ~this [s] (estimate)
   const D_CO2 = 1.9e-9;          // diffusivity of CO2 in the drink [m²/s]
   const FOAM_PHI = 0.15;         // liquid fraction of the foam they make in the headspace
   const SPLASH_TAU = 0.08;       // how fast the walls drag the drink along with the bottle [s] (estimate)
-  const SPLASH_AMP = 3;          // jets from waves slamming a wall outrun it ~2–5× ("flip-through" impacts; estimate)
-  const SPLASH_MOUTH = 0.5;      // share of the mouth a splash jet fills (estimate)
+  const RUNUP_C = 2;             // run-up of a wave meeting a wall, h = C·w²/2g (dam-break / wall run-up: 2–3; estimate)
+  const RUNUP_SIDE = 0.6;        // share of a side-on slam that turns up into the shoulder and neck (estimate)
+  const SPLASH_MOUTH = 0.5;      // share of the mouth a sheet arriving at the lip fills (estimate)
   const FOAM_EXIT_TAU = 0.2;     // foam standing above the lip flows out within this [s] (estimate)
 
   /**
@@ -166,7 +173,8 @@
       this.glugPhase = 0;
       this.surface = 0;
       this.mouthLiquidArea = 0;
-      this.slosh = 0; this.sloshRate = 0; this.sloshExcess = 0;   // free-surface tilt [rad] (+ raises the mouth side) and its rate
+      this.slosh = 0; this.sloshRate = 0; this.sloshExcess = 0;
+      this.runUp = 0; this.runAxial = 0; this.runSide = 1; this.reach = -1; this.hEff = 0; this.lipEff = 0; this.psi = 0;   // free-surface tilt [rad] (+ raises the mouth side) and its rate
       this.Vb = 0; this.Nb = 0;             // gas in bubbles mixed through the drink [m³] and how many
       this.foamG = 0; this.foamL = 0;       // foam in the headspace: gas and liquid [m³]
       this.lostMol = 0;                     // CO2 the drink has lost to bubbles since it was opened [mol]
@@ -229,15 +237,31 @@
       this.vlx = (this.vlx ?? vbx) + (vbx - (this.vlx ?? vbx)) * kd;
       this.vly = (this.vly ?? vby) + (vby - (this.vly ?? vby)) * kd;
       this.wx = this.vlx - vbx; this.wy = this.vly - vby;
-      if (!this.sealed && this.V > 1e-7) {
+      // where the drink stands against the mouth (effective tilt φ + s), for the
+      // sheet, the drawing and the check that nothing leaves before it gets there
+      {
+        const eR = this.effectiveTilt() * Math.PI / 180, cE = Math.cos(eR), sE = Math.sin(eR);
+        const Vl0 = Math.min(this.capacity, this.V + this.Vb);
+        this.hEff = this.V > 1e-9 ? this.surfaceHeight(cE, sE, Vl0) : -1;
+        this.lipEff = this.L * cE - t.r * sE;
+        this.psi = U.clamp(this.phi + this.slosh * 180 / Math.PI, -179, 179) * Math.PI / 180;
+      }
+      // the run-up sheet (or the jet up the middle) a slam throws toward the mouth
+      {
         const ph = this.phi * Math.PI / 180, ox = Math.sin(ph), oy = Math.cos(ph);     // toward the mouth
-        const wAx = this.wx * ox + this.wy * oy, wTr = Math.abs(-this.wx * oy + this.wy * ox);
-        const U = SPLASH_AMP * (Math.max(0, wAx) + wTr);
-        const lipLow = this.L * oy - t.r * Math.abs(ox);
-        const d = Math.max(0, lipLow - (this.surface || 0));
-        if (U * U > 2 * C.G * d) {
-          const ve = Math.sqrt(U * U - 2 * C.G * d);
-          const Q = SPLASH_MOUTH * Math.PI * t.r * t.r * ve * Math.min(1, this.V / 50e-6);
+        const wAx = this.wx * ox + this.wy * oy;                     // along the axis, + toward the mouth
+        const wT = this.wx * oy - this.wy * ox;                      // across it, + toward the bottle's "+w" wall
+        const a2 = Math.max(0, wAx) ** 2, t2 = (RUNUP_SIDE * wT) ** 2;
+        const target = this.V > 1e-7 ? RUNUP_C * (a2 + t2) / (2 * C.G) : 0;
+        const run = this.runUp || 0;
+        if (target > run) this.runUp = Math.min(target, run + Math.sqrt(2 * C.G * target) * dt);    // climbs at its own speed
+        else this.runUp = Math.max(0, run - Math.sqrt(2 * C.G * Math.max(run, 1e-6)) * dt);       // falls back
+        if (target > 1e-4) { this.runAxial = a2 / Math.max(a2 + t2, 1e-12); this.runSide = Math.sign(wT) || this.runSide || 1; }
+        const d = this.lipEff - this.hEff;                           // climb from the drink to the lip
+        this.reach = Math.max(this.hEff - this.lipEff, this.runUp - Math.max(d, 0));
+        if (!this.sealed && this.V > 1e-7 && d > 0 && this.runUp > d) {
+          const ve = Math.sqrt(2 * C.G * (this.runUp - d)), thin = (1 - d / this.runUp) ** 2;
+          const Q = SPLASH_MOUTH * Math.PI * t.r * t.r * ve * thin * Math.min(1, this.V / 30e-6);
           const dV = Math.min(0.5 * this.V, Q * dt);
           if (dV > 0) {
             if (this.Vb > 0) { const f = dV / this.V; this.Vb -= this.Vb * f; this.Nb -= this.Nb * f; }
@@ -255,8 +279,11 @@
         const edge = over * w0 * R;
         const Vair = ENTRAIN * Math.PI * R * R * Math.max(0, edge - BREAK_SPEED) * dt;
         this.Vb += Vair; this.Nb += Vair / (4 / 3 * Math.PI * R_TRAPPED ** 3);
-        this.slosh = sEq + Math.sign(this.slosh - sEq) * SLOSH_BREAK;
+        // the overturning wave spends its energy (strong damping); it does not move the surface
+        this.sloshRate *= Math.exp(-dt * w0 * 6 * over);
       }
+      // a surface cannot tilt past the walls it is held by (well short of 90° in a bottle)
+      if (Math.abs(this.slosh) > SLOSH_MAX) { this.slosh = Math.sign(this.slosh) * SLOSH_MAX; this.sloshRate = 0; }
       // the gas pool of a sealed bottle: ideal gas, in Henry equilibrium with the drink
       const Pamb = ctx.P, kH = ctx.kH;
       if (this.sealed) {
