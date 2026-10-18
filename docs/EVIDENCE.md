@@ -134,6 +134,7 @@ These are honest guesses within physically sensible ranges. The game's *trends* 
 | `table.js` (wet ground) | Film left on wetted varnish 50 µm; drop splash ~3× drop size; foam heaps burst at 0.3× a head's rate | estimates |
 | `table.js` (wet ground) | Evaporation 3·10⁻⁸ m/s at 20 °C, ×e^{0.06(T−20)} | ~1 mm/day in still room air; consistent with diffusion-limited drop evaporation (Hu & Larson 2002) |
 | `table.js` (wet ground) | Dried sugar stain darkest at the rim | Deegan et al. 1997, Nature 389:827 (coffee-ring effect) |
+| `bottle.js` (shaking out) | Outflow against the effective gravity g − a (tilt φ + slosh, rates × √(g_eff/g)); splash jets: drink velocity lag τ = 0.08 s, jet speed-up ×2.5, half the mouth filled, escape if ½U² > g·d | energy balance (exact); the coefficients are estimates |
 | `bottle.js` (cap) | Sealed headspace: ideal gas P = nRT/V over headspace + bubbles + foam gas; Henry equilibrium c = k_H·P_CO₂; Boyle expansion of bubbles on opening | ideal-gas law, Henry's law, Boyle's law (exact) |
 | `bottle.js` (cap) | Surface transfer k_L ≈ 2·10⁻⁵ m/s (×(1 + 100·slosh speed)); trapped-bubble radius 20 µm; air-limited dissolving τ = 30 s·(R/20 µm)²; foam leaving the mouth at max(0.25 m/s, volume rate / mouth area) | estimates |
 | `simulation.js` (rim) | Rim pinning reduced by g/(g + a_swing) while the cup swings | estimate (the meniscus holds against the effective gravity) |

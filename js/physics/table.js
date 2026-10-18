@@ -250,6 +250,9 @@
         }
         if (d.z < EDGE.back && d.y <= 0) { this.floorV += d.V; continue; }   // past the back edge: to the floor
         if (d.vy < 0 && ctx.catchCup(d.x, d.y, d.z)) { back.push(d); this.returnedV += d.V; continue; }
+        // splash shaken out that comes back down onto the open mouth falls back in
+        // (foam and drink welling over the brim run down the outside instead)
+        if (ctx.catchBottle && d.splash && d.age > 0.02 && ctx.catchBottle(d)) { this.intoBottleV = (this.intoBottleV || 0) + d.V; continue; }
         // lands on the table, a foam pile, or the outside of the glass
         const pile = d.vy < 0 ? this.piles.find(q => { const rr = Math.hypot(d.x - q.x, d.z - q.z); return rr < q.r && d.y <= q.h * Math.sqrt(Math.max(0, 1 - rr / q.r)); }) : null;
         if (d.y <= 0 || pile || ctx.hitsCup(d.x, d.y, d.z) || d.age > 10) {

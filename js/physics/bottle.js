@@ -38,6 +38,26 @@
  * shoulder and neck). The tilted surface raises the liquid at the mouth when it
  * swings that way, so sloshing pulses the pour.
  *
+ * SHAKEN OUT. The drink does not feel g but the effective gravity of the
+ * moving bottle, g_eff = g − a: shaken hard (a of several g) it points almost
+ * sideways, or even up. The liquid stands on its sloshing surface (tilt s about
+ * the level), so against the mouth the bottle is effectively tipped by φ + s,
+ * and what reaches the lip is driven out by |g_eff| instead of g (the weir and
+ * glug rates scale as √g). A half-empty bottle shaken hard enough throws its
+ * drink out of the mouth on every stroke, with the bottle's own speed.
+ *
+ * SPLASHED OUT. Shaken hard, the walls slam into the drink faster than it can
+ * follow (the bottle moves several centimetres, more than its own radius), and
+ * colliding waves throw jets faster than the wall itself (wave focusing and
+ * run-up; ×2.5, an estimate). The drink's velocity relative to the bottle, w,
+ * lags behind the bottle's: v_l' = (v_b − v_l)/τ (τ ≈ 0.08 s for the walls to drag it along;
+ * estimate). Liquid thrown toward the mouth (all of w along the axis, half of
+ * a side-on slam redirected up the wall into the shoulder) reaches the lip if
+ * ½U² > g·d, d the climb from the surface to the lip, and leaves at what is
+ * left, √(U² − 2gd), through about half the mouth, plus the bottle's own speed.
+ * So a gentle sway spills nothing, a hard shake empties even a half-empty
+ * bottle in seconds, and a nearly empty one (a longer climb) is harder.
+ *
  * SHAKING. A surface driven past ~25° that overturns faster than ~0.15 m/s
  * breaks and traps air as fine bubbles (~20 µm; estimate: entrained gas ∝ the
  * breaking edge's speed). In supersaturated soda each one is a ready-made
@@ -96,6 +116,9 @@
   const DISSOLVE_TAU = 30;       // a 20 µm trapped bubble dissolves back into a drink at equilibrium in ~this [s] (estimate)
   const D_CO2 = 1.9e-9;          // diffusivity of CO2 in the drink [m²/s]
   const FOAM_PHI = 0.15;         // liquid fraction of the foam they make in the headspace
+  const SPLASH_TAU = 0.08;       // how fast the walls drag the drink along with the bottle [s] (estimate)
+  const SPLASH_AMP = 2.5;        // jets from colliding waves outrun the wall by this much (estimate)
+  const SPLASH_MOUTH = 0.5;      // share of the mouth a splash jet fills (estimate)
   const FOAM_EXIT_TAU = 0.2;     // foam standing above the lip flows out within this [s] (estimate)
 
   /**
@@ -189,6 +212,7 @@
       const k = 1.841 / R, depth = Math.min(t.Lb, this.V / (Math.PI * R * R));
       const w0 = Math.sqrt(C.G * k * Math.tanh(k * Math.max(depth, 0.005)));
       const sEq = Math.atan2(-(ctx.ax || 0), C.G + (ctx.ay || 0));
+      this.gEff = Math.hypot(ctx.ax || 0, C.G + (ctx.ay || 0));
       // exact integration of the damped oscillator over dt (stable at any step)
       const z = SLOSH_ZETA, wd = w0 * Math.sqrt(1 - z * z), e = Math.exp(-z * w0 * dt);
       const x0 = this.slosh - sEq, v0 = this.sloshRate;
@@ -196,6 +220,30 @@
       this.slosh = sEq + e * (x0 * cs + (v0 + z * w0 * x0) / wd * sn);
       this.sloshRate = e * (v0 * cs - (z * w0 * v0 + w0 * w0 * x0) / wd * sn);
       this.sloshExcess = this.slosh - sEq;
+      // the drink's motion relative to the bottle, and what it throws out of the mouth
+      this.splash = null;
+      // the drink is dragged along behind the bottle (velocity lag τ); w = its velocity relative to the bottle
+      const vbx = ctx.vx || 0, vby = ctx.vy || 0, kd = 1 - Math.exp(-dt / SPLASH_TAU);
+      this.vlx = (this.vlx ?? vbx) + (vbx - (this.vlx ?? vbx)) * kd;
+      this.vly = (this.vly ?? vby) + (vby - (this.vly ?? vby)) * kd;
+      this.wx = this.vlx - vbx; this.wy = this.vly - vby;
+      if (!this.sealed && this.V > 1e-7) {
+        const ph = this.phi * Math.PI / 180, ox = Math.sin(ph), oy = Math.cos(ph);     // toward the mouth
+        const wAx = this.wx * ox + this.wy * oy, wTr = Math.abs(-this.wx * oy + this.wy * ox);
+        const U = SPLASH_AMP * (Math.max(0, wAx) + 0.5 * wTr);
+        const lipLow = this.L * oy - t.r * Math.abs(ox);
+        const d = Math.max(0, lipLow - (this.surface || 0));
+        if (U * U > 2 * C.G * d) {
+          const ve = Math.sqrt(U * U - 2 * C.G * d);
+          const Q = SPLASH_MOUTH * Math.PI * t.r * t.r * ve * Math.min(1, this.V / 50e-6);
+          const dV = Math.min(0.5 * this.V, Q * dt);
+          if (dV > 0) {
+            if (this.Vb > 0) { const f = dV / this.V; this.Vb -= this.Vb * f; this.Nb -= this.Nb * f; }
+            this.V -= dV;
+            this.splash = { V: dV, ve };
+          }
+        }
+      }
       // breaking: the excess is spent tearing the surface, trapping air
       let mol = 0;
       const over = Math.abs(this.slosh - sEq) - SLOSH_BREAK;
@@ -273,7 +321,7 @@
       }
       // the foam floats on the drink and fills the bottle up to a level surface;
       // only what stands above the lowest point of the lip can come out
-      const rad = this.phi * Math.PI / 180, cosP = Math.cos(rad), sinP = Math.sin(rad);
+      const rad = this.effectiveTilt() * Math.PI / 180, cosP = Math.cos(rad), sinP = Math.sin(rad);
       const Vl = Math.min(this.capacity, this.V + this.Vb), Vf = this.foamG + this.foamL;
       this.surfaceAll = this.surfaceHeight(cosP, sinP, Vl);
       this.foamTop = this.surfaceAll;
@@ -283,7 +331,7 @@
         if (!this.sealed && (this.foamTop >= lipLow - 1e-4 || Vl + Vf > this.capacity)) {
           const fits = Math.max(0, this.volumeBelow(lipLow, cosP, sinP) - Vl);   // foam room below the lip's level
           const ex = Math.max(0, Vf - fits, Vl + Vf - this.capacity);
-          const out = Math.min(Vf, ex * (1 - Math.exp(-dt / FOAM_EXIT_TAU)));
+          const out = Math.min(Vf, ex * (1 - Math.exp(-dt * Math.sqrt((this.gEff || C.G) / C.G) / FOAM_EXIT_TAU)));
           if (out > 0) {
             const f = out / Vf;
             this.spew = { vg: this.foamG * f, vl: this.foamL * f, liquid: 0 };
@@ -304,6 +352,9 @@
       this.lostMol += mol;
       return mol;
     }
+
+    /** How far the bottle is tipped against the drink's own (sloshing) surface [deg, 0–179]. */
+    effectiveTilt() { return Math.min(179, Math.abs(this.phi + (this.slosh || 0) * 180 / Math.PI)); }
 
     /** Gas fraction of what pours out now (bubbles carried with the drink). */
     get gasFraction() { return this.V > 1e-9 ? this.Vb / (this.V + this.Vb) : 0; }
@@ -402,22 +453,22 @@
       const t = this.type, r = t.r;
       this.cosP = cosP; this.sinP = sinP;
       if (this.V <= 1e-9) { this.V = 0; this.Q = 0; this.regime = 'empty'; return 0; }
-      const h = this.surfaceHeight(cosP, sinP, Math.min(this.capacity, this.V + this.Vb));   // bubbles swell the drink
-      this.surface = h;
-      const lipLow = this.L * cosP - r * sinP;
+      const Vl = Math.min(this.capacity, this.V + this.Vb);          // bubbles swell the drink
+      this.surface = this.surfaceHeight(cosP, sinP, Vl);              // (the still level, for drawing)
+      // against the mouth, the bottle is tipped by φ + s relative to the drink's own surface
+      const eRad = this.effectiveTilt() * Math.PI / 180, cosE = Math.cos(eRad), sinE = Math.sin(eRad);
+      const shaken = Math.abs(eRad - rad) > 1e-4;
+      const h = shaken ? this.surfaceHeight(cosE, sinE, Vl) : this.surface;
+      const lipLow = this.L * cosE - r * sinE;
       if (this.sealed) { this.Q = 0; this.regime = 'sealed'; this.head = h - lipLow; this.deficit = 0; this.mouthLiquidArea = 0; return 0; }
-      // the sloshing surface stands higher (or lower) at the mouth, which sits a
-      // horizontal distance ≈ (L/2)·sinφ from the middle of the drink. Only the
-      // swing about the level the moving bottle imposes counts: a steady
-      // acceleration tilts the surface and the effective gravity alike.
-      const e = h - lipLow + Math.tan(U.clamp(this.sloshExcess || 0, -0.5, 0.5)) * 0.5 * this.L * sinP;
+      const e = h - lipLow;
       this.head = e;
       if (e <= 0) { this.Q = 0; this.regime = 'idle'; this.deficit = 0; this.mouthLiquidArea = 0; return 0; }
 
       // --- how much of the mouth is under the liquid (in the mouth plane)
       const mouthArea = Math.PI * r * r;
-      const wLine = sinP > 1e-6 ? r - e / sinP : -Infinity;      // liquid covers w > wLine
-      const areaLiq = sinP > 1e-6 ? segment(r, wLine) : mouthArea;
+      const wLine = sinE > 1e-6 ? r - e / sinE : -Infinity;      // liquid covers w > wLine
+      const areaLiq = sinE > 1e-6 ? segment(r, wLine) : mouthArea;
       const areaAir = mouthArea - areaLiq;
       const rhoG = fl.rho * C.G;
 
@@ -433,19 +484,21 @@
         dP = rhoG * Math.min(d / 2, e / 2);
         // mean flow = the smaller of the head-driven and air-limited rates; the
         // pulsation rides on top of it so the time-average is preserved
-        Q = Math.min(this.liquidFlow(e - dP / rhoG, sinP), this.glugLimit()) * pulse;
+        Q = Math.min(this.liquidFlow(e - dP / rhoG, sinE), this.glugLimit()) * pulse;
         this.regime = 'glug';
       } else {
         // SMOOTH: find the headspace suction that balances liquid out against air in
         let lo = 0, hi = rhoG * e;
         for (let it = 0; it < 30; it++) {
           const mid = 0.5 * (lo + hi);
-          if (this.liquidFlow(e - mid / rhoG, sinP) > this.airFlow(areaAir, mid)) lo = mid; else hi = mid;
+          if (this.liquidFlow(e - mid / rhoG, sinE) > this.airFlow(areaAir, mid)) lo = mid; else hi = mid;
         }
         dP = 0.5 * (lo + hi);
-        Q = this.liquidFlow(e - dP / rhoG, sinP);
+        Q = this.liquidFlow(e - dP / rhoG, sinE);
         this.regime = 'smooth';
       }
+      // shaken: driven by the effective gravity (weir and glug rates go as √g)
+      Q *= Math.sqrt(Math.max(0.2, (this.gEff || C.G) / C.G));
       this.deficit = dP;
       this.mouthLiquidArea = areaLiq;
       const dV = Math.min(this.V, Q * dt);

@@ -631,6 +631,23 @@ section('Time-lapse, flings and spills from the player\'s side');
     `${ml(rested.gush)} vs ${ml(shook.gush)}`, 'Laplace pressure / air-limited dissolution');
 }
 {
+  // shaking an open, half-empty bottle: a sway spills nothing, a hard enough shake throws it all out
+  const shakeOut = (amp, hz) => {
+    seed(1);
+    const sim = new Simulation({ beverage: 'cola', iceCubes: 0 });
+    sim.openBottle(); sim.bottle.V = 250e-6;
+    sim.grabBottle(); sim.tipBottle(0); sim.moveBottle(-0.12, 0.25);
+    for (let i = 0; i < 60; i++) sim.step(1 / 120);
+    const x0 = sim.pour.mouth.x, y0 = sim.pour.mouth.y;
+    for (let f = 0; f < 4 * 60; f++) { sim.moveBottle(x0 + amp * Math.sin(2 * Math.PI * hz * f / 60), y0); sim.step(1 / 120); sim.step(1 / 120); }
+    return sim.bottle.V;
+  };
+  const sway = shakeOut(0.05, 1), hard = shakeOut(0.06, 7);
+  expect('an open half-empty bottle: a gentle sway spills nothing; shaken hard enough, the drink is splashed out of the mouth',
+    sway > 249e-6 && hard < 0.1 * 250e-6, `sway: ${ml(sway)} left of 250 ml; 6 cm at 7 Hz for 4 s: ${ml(hard)} left`,
+    'relative motion of the drink vs the bottle; ½U² > g·d to reach the lip');
+}
+{
   // tipped by hand, a sealed bottle does not pour; popping the cap shoots it off and lets it pour
   seed(3);
   const sim = new Simulation({ beverage: 'cola' });

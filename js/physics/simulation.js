@@ -460,6 +460,9 @@
       const vx = (cx - S.x) / dt, vy = (cy - S.y) / dt;
       const nvx = S.vx + (vx - S.vx) * k, nvy = S.vy + (vy - S.vy) * k;
       S.ax += ((nvx - S.vx) / dt - S.ax) * k; S.ay += ((nvy - S.vy) / dt - S.ay) * k;
+      // the bottle's velocity over about one frame (the hand moves once a frame): for splashing
+      const kf = 1 - Math.exp(-dt / 0.017);
+      S.fx = (S.fx || 0) + (vx - (S.fx || 0)) * kf; S.fy = (S.fy || 0) + (vy - (S.fy || 0)) * kf;
       S.vx = nvx; S.vy = nvy; S.x = cx; S.y = cy;
       // only a hand you drive moves it jerkily enough to matter: the automatic
       // pourer's glide is an animation (its velocity jumps are not real motion),
@@ -468,11 +471,18 @@
       const ax = held ? U.clamp(S.ax, -400, 400) : 0, ay = held ? U.clamp(S.ay, -400, 400) : 0;
       const fl = Props.fluid(this.bev, this.params.sodaTemp + C.T0);
       const mol = B.stepShake(dt, {
-        ax, ay, c: this.cBottle, kH: fl.kH, RT: C.R * fl.T, P: this.Pamb, mu: fl.mu, sigma: fl.sigma,
+        ax, ay, vx: held ? S.fx : 0, vy: held ? S.fy : 0, c: this.cBottle, kH: fl.kH, RT: C.R * fl.T, P: this.Pamb, mu: fl.mu, sigma: fl.sigma,
         burstTau: U.clamp(60 / Math.max(this.bev.burstRate || 1, 0.1), 3, 60),
       });
       this.stats.bottleCO2Out = (this.stats.bottleCO2Out || 0) + mol;
       // foam (and swollen drink) pushed out of the mouth falls from there
+      // drink splashed out of the mouth by a hard shake: out along the neck, plus the bottle's own speed
+      if (B.splash) {
+        const at = this.worldToTable(P.mouth.x, P.mouth.y), ve = B.splash.ve;
+        this.table.launch('liquid', B.splash.V, 0, this.cBottle * B.splash.V, 1, [at[0], at[1], 0],
+          [Math.sin(phi) * ve + S.vx, Math.cos(phi) * ve + S.vy, 0], 3e-4, { splash: true });
+        this.stats.bottleSplash = (this.stats.bottleSplash || 0) + B.splash.V;
+      }
       if (B.spew) {
         const at = this.worldToTable(P.mouth.x, P.mouth.y);
         // forced out through the mouth: speed = volume rate / mouth area (continuity),
@@ -775,7 +785,7 @@
       if (P.active && P.auto && P.poured >= P.target) { this.stopPour(); this.emit('pourDone'); }
 
       if (this.bottle.sealed && P.active) this.openBottle();          // AUTO / HOLD: the pourer twists it off first
-      if (this.bottle.sealed && P.manual && this.bottle.head > 0 && !P.sealedHint) { P.sealedHint = true; this.emit('sealedTip'); }
+      if (this.bottle.sealed && P.manual && this.bottle.phi > 70 && !P.sealedHint) { P.sealedHint = true; this.emit('sealedTip'); }
       this._stepCap(dt);
       this._shakeBottle(dt);
       // the bottle decides the flow: angle, liquid left, and air getting back in
@@ -797,7 +807,8 @@
         const ex = this.bottle.exitJet();
         const phi = this.bottle.phi * Math.PI / 180;
         P.uc = StreamM.separationSpeed(flIn, 72, StreamM.BOTTLE_LIP_K);
-      this.stream.emit(dVout, this.worldToTable(P.mouth.x, P.mouth.y), [P.exit.ux, P.exit.vy], ex.d,
+      const hv = P.manual && this._shake ? [this._shake.vx, this._shake.vy] : [0, 0];      // a moving bottle flings it
+      this.stream.emit(dVout, this.worldToTable(P.mouth.x, P.mouth.y), [P.exit.ux + hv[0], P.exit.vy + hv[1]], ex.d,
                          [-Math.sin(phi), -Math.cos(phi)], flIn, P.uc);
       }
       const dV = this._stepStream(dt);                          // what reached the drink this step
@@ -2058,11 +2069,27 @@
       const back = this.table.step(dt, {
         fl, bev: this.bev, fragility: Foam.fragility, Tdrop: this.liquid.T,
         catchCup: (x, y, z) => { const [u, v] = this.tableToCup(x, y); return v < H && v > 0 && u * u + z * z < R * R; },
+        // a drop just inside the open mouth of the bottle, moving into it (in the bottle's own frame)
+        catchBottle: (d) => {
+          const B = this.bottle, Pm = this.pour.mouth;
+          if (B.sealed) return false;
+          const pw = this.pivotWorld(), phi = B.phi * Math.PI / 180, ox = Math.sin(phi), oy = Math.cos(phi);
+          const rx = d.x + pw[0] - Pm.x, ry = d.y + pw[1] - Pm.y;
+          const along = rx * ox + ry * oy, across = Math.abs(-rx * oy + ry * ox);
+          const S = this._shake || {};
+          const vin = (d.vx - (S.fx || 0)) * ox + (d.vy - (S.fy || 0)) * oy;
+          return along < 0 && along > -0.02 && across < B.type.r && Math.abs(d.z) < B.type.r && vin < 0;
+        },
         hitsCup: (x, y, z) => {
           const [u, v] = this.tableToCup(x, y), r2 = u * u + z * z;
           return v < H && v > -base && r2 <= (R + wall) ** 2 && r2 >= R * R;
         },
       });
+      if (this.table.intoBottleV > 0) {                            // splash that fell back into the bottle
+        this.bottle.V += this.table.intoBottleV;
+        this.stats.bottleSplash = Math.max(0, (this.stats.bottleSplash || 0) - this.table.intoBottleV);
+        this.table.intoBottleV = 0;
+      }
       const L = this.liquid;
       for (const d of back) {
         this.stats.spilledV -= d.V; this.stats.spilledMol -= d.n;
@@ -2292,7 +2319,7 @@
         missed: st.streamMissed || 0,
         tableCO2: this.table.puddles.reduce((a, q) => a + (q.n || 0), 0) + this.table.piles.reduce((a, q) => a + (q.n || 0), 0),
         tableCO2Out: st.tableCO2Out || 0, tableFizz: this.tableFizzRate || 0,
-        gushV: st.gushV || 0, bottleSealed: this.bottle.sealed ? 1 : 0, bottleP: this.bottle.P, bottleSlosh: this.bottle.slosh, bottleFoam: this.bottle.foamG + this.bottle.foamL, bottleBubbles: this.bottle.Vb,
+        gushV: st.gushV || 0, bottleSplash: st.bottleSplash || 0, bottleSealed: this.bottle.sealed ? 1 : 0, bottleP: this.bottle.P, bottleSlosh: this.bottle.slosh, bottleFoam: this.bottle.foamG + this.bottle.foamL, bottleBubbles: this.bottle.Vb,
         bottleCO2Out: st.bottleCO2Out || 0, tableFrothing: this.additives.mentos.concat(this.additives.salt).some(o => o.tableFizz > 0) ? 1 : 0, bottleSpew: st.bottleSpew || 0, cBottle: this.cBottle, overRim: Math.max(0, st.spilledV - (st.streamMissed || 0)), entrained: st.entrainedV,
         tFlat, tStop, pouring: P.active,
       };
