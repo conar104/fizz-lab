@@ -7,16 +7,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=2026-10-17i">
+  <link rel="stylesheet" href="css/style.css?v=2026-10-23a">
 </head>
-<body class="mode-play">
+<body>
   <header class="top">
     <h1>FIZZ<span>LAB</span></h1>
-    <p class="tag">a pouring game with real fizz physics</p>
-    <div class="modes" role="tablist" aria-label="Mode">
-      <button id="mode-play" class="on" title="The game: pour the perfect drink">▶ PLAY</button>
-      <button id="mode-lab" title="The physics lab: every control, chart and readout">⚗ LAB</button>
-    </div>
+    <p class="tag">pour a drink, watch the real fizz physics</p>
     <div class="clock" id="clock">t = 0.0 s</div>
   </header>
 
@@ -32,8 +28,7 @@
             <button id="banner-close">OK</button>
           </div>
         </div>
-        <div id="hud" class="hud lab-only"></div>
-        <div id="ghud" class="ghud play-only"></div>
+        <div id="hud" class="hud"></div>
         <div class="quickbar" role="toolbar" aria-label="Quick actions">
           <button id="q-reset" title="Reset (R)">↺ RESET</button>
           <button id="q-upright" title="Stand the glass up (U)">⊥ UPRIGHT</button>
@@ -85,7 +80,6 @@
           <button id="btn-clean" title="Wipe the table: puddles, foam, spilled ice. The glass is left as it is.">CLEAN TABLE <kbd>C</kbd></button>
           <button id="btn-reset" class="reset" title="Empty the glass, clean the table, refill the bottle — same setup">RESET <kbd>R</kbd></button>
           <button id="btn-defaults" title="Put every setting back to the defaults and start over">DEFAULTS</button>
-          <button id="btn-serve" class="serve" hidden>SERVE!</button>
         </div>
       </div>
 
@@ -97,7 +91,7 @@
         <button id="btn-view" title="Switch between the 3-D view and the flat cross-section">3D <kbd>V</kbd></button>
       </div>
 
-      <section class="instruments lab-only" aria-label="Instruments">
+      <section class="instruments" aria-label="Instruments">
         <div id="keystats" class="keystats"></div>
         <div class="charts">
           <figure>
@@ -124,12 +118,13 @@
     </section>
 
     <aside class="panel">
-      <nav class="tabs lab-only" id="tabs">
+      <nav class="tabs" id="tabs">
         <button data-tab="setup" class="on">DRINK &amp; GLASS</button>
         <button data-tab="experiments">EXPERIMENTS</button>
+        <button data-tab="awards">ACHIEVEMENTS</button>
         <button data-tab="model">HOW IT WORKS</button>
       </nav>
-      <p class="tab-desc lab-only" id="tab-desc"></p>
+      <p class="tab-desc" id="tab-desc"></p>
 
       <div class="tab" id="tab-setup">
         <p class="hint">Changing the drink or the glass starts a fresh glass. Everything marked ⚡, and ice, Mentos, salt and the spoon, act live on the glass you have. Hover any setting for the physics behind it.</p>
@@ -141,29 +136,16 @@
         <div id="experiments" class="experiments"></div>
       </div>
 
-      <div class="tab" id="tab-challenge" hidden>
-        <h3>PERFECT POUR</h3>
-        <p class="hint">Five random drinks, glasses and ice. Fill the <b class="lime">liquid</b> to the blinking line with a 3–15 mm head, then SERVE. Points for accuracy, speed and a good head; spills cost you.</p>
-        <button id="btn-challenge" class="big">START CHALLENGE</button>
-        <p class="best">Best: <span id="best">0</span></p>
+      <div class="tab" id="tab-awards" hidden>
         <h3>HOW TO POUR</h3>
         <ul class="howto">
-          <li><b>Grab the bottle</b> by its neck to move it, by its body to tip it — you control the flow completely. Scroll to tip it too.</li>
+          <li><b>Pop the cap</b> (click it, or POP / O) — shake it first for a gusher.</li>
+          <li><b>Grab the bottle</b> by its neck to move or shake it, by its body to tip it. Scroll to tip it too.</li>
           <li>Or hold <b>SPACE</b> / HOLD to tip it, or <b>AUTO</b> to pour the set amount.</li>
-          <li><b>Drag the glass</b> (or ← →) to tilt it — pour down the side for less foam.</li>
+          <li><b>Drag the glass</b> (or ← →) to tilt it: pour down the side for less foam, flick it to throw.</li>
           <li>Ice, Mentos, salt and the spoon are in the ADD row. Press <b>?</b> for every key.</li>
         </ul>
-        <div id="freepour" class="freepour">
-          <h3>FREE POUR</h3>
-          <p class="hint">Pick a drink, a glass and some ice, then pour. (The challenge picks them for you.)</p>
-          <div id="fp-drinks" class="fp-drinks"></div>
-          <div id="fp-glasses" class="fp-chips"></div>
-          <div id="fp-ice" class="fp-chips"></div>
-        </div>
-        <h3>YOUR POUR</h3>
-        <div id="pour-quick" class="pour-quick"></div>
-        <p class="hint">Curious why it foams? Switch to <b>⚗ LAB</b> for every control, chart and the physics behind it.</p>
-        <h3>ACHIEVEMENTS</h3>
+        <h3>ACHIEVEMENTS <span id="ach-count" class="dim"></span></h3>
         <ul id="achievements" class="achievements"></ul>
       </div>
 
@@ -206,27 +188,27 @@
     </aside>
   </main>
 
-  <script src="js/core/util.js?v=2026-10-17i"></script>
-  <script src="js/physics/constants.js?v=2026-10-17i"></script>
-  <script src="js/physics/properties.js?v=2026-10-17i"></script>
-  <script src="js/physics/nucleation.js?v=2026-10-17i"></script>
-  <script src="js/physics/jet.js?v=2026-10-17i"></script>
-  <script src="js/physics/bubbles.js?v=2026-10-17i"></script>
-  <script src="js/physics/foam.js?v=2026-10-17i"></script>
-  <script src="js/physics/ice.js?v=2026-10-17i"></script>
-  <script src="js/physics/capillary.js?v=2026-10-17i"></script>
-  <script src="js/physics/tilt.js?v=2026-10-17i"></script>
-  <script src="js/physics/bottle.js?v=2026-10-17i"></script>
-  <script src="js/physics/slosh.js?v=2026-10-17i"></script>
-  <script src="js/physics/table.js?v=2026-10-17i"></script>
-  <script src="js/physics/stream.js?v=2026-10-17i"></script>
-  <script src="js/physics/simulation.js?v=2026-10-17i"></script>
-  <script src="js/render/renderer.js?v=2026-10-17i"></script>
-  <script src="js/render/render3d.js?v=2026-10-17i"></script>
-  <script src="js/render/charts.js?v=2026-10-17i"></script>
-  <script src="js/ui/controls.js?v=2026-10-17i"></script>
-  <script src="js/ui/hud.js?v=2026-10-17i"></script>
-  <script src="js/game/game.js?v=2026-10-17i"></script>
-  <script src="js/main.js?v=2026-10-17i"></script>
+  <script src="js/core/util.js?v=2026-10-23a"></script>
+  <script src="js/physics/constants.js?v=2026-10-23a"></script>
+  <script src="js/physics/properties.js?v=2026-10-23a"></script>
+  <script src="js/physics/nucleation.js?v=2026-10-23a"></script>
+  <script src="js/physics/jet.js?v=2026-10-23a"></script>
+  <script src="js/physics/bubbles.js?v=2026-10-23a"></script>
+  <script src="js/physics/foam.js?v=2026-10-23a"></script>
+  <script src="js/physics/ice.js?v=2026-10-23a"></script>
+  <script src="js/physics/capillary.js?v=2026-10-23a"></script>
+  <script src="js/physics/tilt.js?v=2026-10-23a"></script>
+  <script src="js/physics/bottle.js?v=2026-10-23a"></script>
+  <script src="js/physics/slosh.js?v=2026-10-23a"></script>
+  <script src="js/physics/table.js?v=2026-10-23a"></script>
+  <script src="js/physics/stream.js?v=2026-10-23a"></script>
+  <script src="js/physics/simulation.js?v=2026-10-23a"></script>
+  <script src="js/render/renderer.js?v=2026-10-23a"></script>
+  <script src="js/render/render3d.js?v=2026-10-23a"></script>
+  <script src="js/render/charts.js?v=2026-10-23a"></script>
+  <script src="js/ui/controls.js?v=2026-10-23a"></script>
+  <script src="js/ui/hud.js?v=2026-10-23a"></script>
+  <script src="js/game/game.js?v=2026-10-23a"></script>
+  <script src="js/main.js?v=2026-10-23a"></script>
 </body>
 </html>

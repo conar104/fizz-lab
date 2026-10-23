@@ -1,7 +1,7 @@
 /* Fizz Lab — wiring: simulation loop, input, panels. */
 (function (Fizz) {
   'use strict';
-  const { Simulation, Renderer, Chart, UI, Game, Hud, GameHud, C } = Fizz;
+  const { Simulation, Renderer, Chart, UI, Game, Hud, C } = Fizz;
 
   const $ = (id) => document.getElementById(id);
   const DT = 1 / 120;           // physics step at 1× speed
@@ -38,7 +38,6 @@
   // --- panels -----------------------------------------------------------
   const panel = new UI.ControlPanel(sim, $('controls'), () => sim.reset(), { addIce: () => addIce(), setIceCount: (n) => sim.setIceCount(n) });
   const hud = new Hud($('hud'));
-  const ghud = new GameHud($('ghud'));
   const readouts = new UI.Readouts($('readouts'));
 
   const gL = (vol) => vol * C.MOL_PER_VOLUME * C.M_CO2;
@@ -51,8 +50,7 @@
       ],
       band: [0, 1],
       yMax: () => sim.H * 1000 * 1.15,
-      guides: [{ value: () => sim.H * 1000, color: '#ef7d57', label: 'rim' },
-               { value: () => game.target != null ? game.target * 1000 : null, color: '#a7f070', label: 'target' }],
+      guides: [{ value: () => sim.H * 1000, color: '#ef7d57', label: 'rim' }],
     }),
     co2: new Chart($('chart-co2'), {
       legend: $('legend-co2'),
@@ -123,12 +121,6 @@
   const game = new Game(sim, {
     toast, banner,
     onParamsChanged: () => panel.sync(),
-    lock: (on) => {
-      panel.lockSetup(on);
-      $('btn-serve').hidden = !on;
-      $('btn-challenge').textContent = on ? 'QUIT CHALLENGE' : 'START CHALLENGE';
-      $('best').textContent = game.store.best;
-    },
     onAchievements: () => renderAchievements(),
   });
 
@@ -141,106 +133,26 @@
     $('experiments').appendChild(b);
   }
   function renderAchievements() {
+    const got = Game.ACHIEVEMENTS.filter(a => game.store.unlocked[a.id]).length;
+    $('ach-count').textContent = `${got} / ${Game.ACHIEVEMENTS.length}`;
     $('achievements').innerHTML = Game.ACHIEVEMENTS.map(a =>
       `<li class="${game.store.unlocked[a.id] ? 'got' : ''}"><b>${game.store.unlocked[a.id] ? '★' : '☆'} ${a.name}</b> ${a.desc}</li>`).join('');
   }
   renderAchievements();
 
-  // --- PLAY (the game) or LAB (every control, chart and readout) -------------
-  let labTab = 'setup', mode = 'play';
-  function setMode(m) {
-    mode = m;
-    document.body.classList.toggle('mode-play', m === 'play');
-    document.body.classList.toggle('mode-lab', m === 'lab');
-    $('mode-play').classList.toggle('on', m === 'play');
-    $('mode-lab').classList.toggle('on', m === 'lab');
-    const show = m === 'play' ? 'challenge' : labTab;
-    for (const el of document.querySelectorAll('.tab')) el.hidden = el.id !== 'tab-' + show;
-    for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === labTab);
-    try { localStorage.setItem('fizzlab.mode', m); } catch (e) { /* ignore */ }
-  }
+  // --- the lab's tabs ------------------------------------------------------
+  let labTab = 'setup';
   // each lab tab says what it is for
   const TAB_DESC = {
     setup: 'Build the scene: the drink, the glass, the ice and the pour.',
     experiments: 'One-click "what if" questions, poured for you.',
+    awards: 'How to pour, and the things you have done to a soda so far.',
     model: 'The physics behind every number, with sources.',
   };
   const showTabDesc = () => { $('tab-desc').textContent = TAB_DESC[labTab] || ''; };
   $('tabs').addEventListener('click', () => setTimeout(showTabDesc, 0));
   showTabDesc();
-  $('mode-play').onclick = () => setMode('play');
 
-  // --- free pour in the game: drinks, glasses and ice without opening the lab ----
-  const GLASSES = [
-    { name: 'Tumbler', set: { material: 'glass', cupDiameter: 7.5, cupHeight: 12 } },
-    { name: 'Pint', set: { material: 'glass', cupDiameter: 8.5, cupHeight: 15 } },
-    { name: 'Highball', set: { material: 'glass', cupDiameter: 6.5, cupHeight: 15 } },
-    { name: 'Flute', set: { material: 'glass', cupDiameter: 5, cupHeight: 18 } },
-    { name: 'Mug', set: { material: 'ceramic', cupDiameter: 8, cupHeight: 10 } },
-    { name: 'Party cup', set: { material: 'plastic', cupDiameter: 9, cupHeight: 12 } },
-    { name: 'Paper cup', set: { material: 'paper', cupDiameter: 8, cupHeight: 10 } },
-    { name: 'Foam cup', set: { material: 'styrofoam', cupDiameter: 8, cupHeight: 10 } },
-    { name: 'Steel cup', set: { material: 'steel', cupDiameter: 7.5, cupHeight: 12 } },
-  ];
-  const ICE = [0, 3, 6, 12];
-  const freshGlass = (set) => {
-    if (game.challenge) return;
-    Object.assign(sim.params, set);
-    sim.reset(); panel.sync(); saveParams();
-  };
-  for (const b of Object.values(Fizz.Props.BEVERAGES)) {
-    const btn = document.createElement('button');
-    btn.className = 'fp-drink'; btn.dataset.id = b.id;
-    btn.style.setProperty('--liq', b.liquid); btn.style.setProperty('--lab', b.label);
-    btn.innerHTML = `<i class="can"></i><span>${b.name}</span>`;
-    btn.title = `${b.name} (${b.eg}): ${b.carbonation} vol CO₂`;
-    btn.onclick = () => freshGlass({ beverage: b.id, carbonation: b.carbonation });
-    $('fp-drinks').appendChild(btn);
-  }
-  for (const gl of GLASSES) {
-    const btn = document.createElement('button');
-    btn.className = 'chip'; btn.textContent = gl.name; btn.dataset.glass = gl.name;
-    btn.title = `${gl.set.cupDiameter} × ${gl.set.cupHeight} cm, ${gl.set.material}`;
-    btn.onclick = () => freshGlass(gl.set);
-    $('fp-glasses').appendChild(btn);
-  }
-  for (const n of ICE) {
-    const btn = document.createElement('button');
-    btn.className = 'chip'; btn.textContent = n ? `${n} ice cubes` : 'No ice'; btn.dataset.ice = n;
-    btn.onclick = () => { if (!game.challenge) { sim.setIceCount(n); panel.sync(); saveParams(); } };
-    $('fp-ice').appendChild(btn);
-  }
-  const syncFreePour = () => {
-    const p = sim.params;
-    $('freepour').hidden = !!game.challenge;
-    for (const b of $('fp-drinks').children) b.classList.toggle('on', b.dataset.id === p.beverage);
-    for (const b of $('fp-glasses').children) {
-      const gl = GLASSES.find(x => x.name === b.dataset.glass).set;
-      b.classList.toggle('on', gl.material === p.material && gl.cupDiameter === p.cupDiameter && gl.cupHeight === p.cupHeight);
-    }
-    for (const b of $('fp-ice').children) b.classList.toggle('on', +b.dataset.ice === p.iceCubes);
-  };
-  $('mode-lab').onclick = () => setMode('lab');
-
-  // the pour you control in the game: rate (AUTO), lip height, glass tilt
-  const QUICK = [
-    { key: 'pourRate', label: 'AUTO pours at', min: 5, max: 120, step: 1, fmt: v => `${v} ml/s` },
-    { key: 'pourHeight', label: 'Lip above rim', min: 0, max: 30, step: 0.5, fmt: v => `${v} cm` },
-    { key: 'tilt', label: 'Glass tilt', min: 0, max: 90, step: 1, fmt: v => `${v}°` },
-  ];
-  const quickInputs = QUICK.map(q => {
-    const lab = document.createElement('label');
-    lab.innerHTML = `<span>${q.label}</span><input type="range" min="${q.min}" max="${q.max}" step="${q.step}"><output></output>`;
-    const inp = lab.querySelector('input'), out = lab.querySelector('output');
-    inp.oninput = () => { sim.params[q.key] = +inp.value; out.textContent = q.fmt(+inp.value); panel.sync(); };
-    $('pour-quick').appendChild(lab);
-    return { q, inp, out };
-  });
-  const syncQuick = () => quickInputs.forEach(({ q, inp, out }) => {
-    if (document.activeElement !== inp && +inp.value !== sim.params[q.key]) inp.value = sim.params[q.key];
-    out.textContent = q.fmt(sim.params[q.key]);
-  });
-  $('best').textContent = game.store.best;
 
   // --- tabs --------------------------------------------------------------
   $('tabs').addEventListener('click', (e) => {
@@ -276,7 +188,6 @@
   const stopAll = () => { sim.stopAll(); };
   const restoreDefaults = () => {
     Object.assign(sim.params, Simulation.DEFAULTS);
-    if (game.challenge) game.quitChallenge();
     sim.reset(); panel.sync(); saveParams();
     toast('Defaults', 'Every setting is back to the default diet cola pour.');
   };
@@ -310,7 +221,7 @@
   let hudOn = true;
   const toggleHud = () => {
     hudOn = !hudOn;
-    $('hud').hidden = !hudOn; $('ghud').hidden = !hudOn;
+    $('hud').hidden = !hudOn;
     renderer.setWindow(!hudOn);
     hudBtn.classList.toggle('on', hudOn);
     hudBtn.setAttribute('aria-pressed', hudOn);
@@ -429,9 +340,7 @@
     $('btn-stir').classList.toggle('on', st);
     $('btn-stir').setAttribute('aria-pressed', st);
   }
-  $('btn-reset').onclick = () => { if (game.challenge) game.challenge.target = sim.H * 0.75; sim.reset(); };
-  $('btn-serve').onclick = () => game.serve();
-  $('btn-challenge').onclick = () => (game.challenge ? game.quitChallenge() : game.startChallenge());
+  $('btn-reset').onclick = () => sim.reset();
 
   const speedBox = $('speeds');
   const setSpeed = (s) => {
@@ -499,7 +408,7 @@
       const h = Math.min(simDt / n, MAX_DT);
       for (let i = 0; i < n; i++) sim.step(h);
     }
-    renderer.render(sim, { target: game.target }, real);
+    renderer.render(sim, {}, real);
     syncButtons();
 
     uiTimer += real; chartTimer += real;
@@ -507,29 +416,19 @@
       uiTimer = 0;
       const d = sim.diagnostics();
       readouts.update(d);
-      if (hudOn) { if (mode === 'lab') hud.update(sim, d); else ghud.update(sim, d, game); }
-      if (mode === 'lab') updateKeys(d);
-      syncFreePour();
-      syncQuick();
+      if (hudOn) hud.update(sim, d);
+      updateKeys(d);
       game.check(d);
       $('clock').textContent = `t = ${sim.time.toFixed(1)} s${paused ? ' · paused' : ''}`;
-      if (!game.challenge) saveParams();
+      saveParams();
     }
     if (chartTimer > 0.25) {
       chartTimer = 0;
-      if (mode === 'lab') { charts.height.draw(sim.history); charts.co2.draw(sim.history); charts.temp.draw(sim.history); }
+      charts.height.draw(sim.history); charts.co2.draw(sim.history); charts.temp.draw(sim.history);
     }
   }
   requestAnimationFrame(frame);
 
-  // start in the mode you left in; the game greets you
-  let savedMode = 'play';
-  try { savedMode = localStorage.getItem('fizzlab.mode') || 'play'; } catch (e) { /* ignore */ }
-  setMode(savedMode === 'lab' ? 'lab' : 'play');
-  if (mode === 'play') {
-    banner('PERFECT POUR', 'Five glasses, five drinks. Pour each to the green line with a nice head: grab the bottle and tip it yourself, or use HOLD / AUTO. Want the physics instead? Hit LAB.',
-      { label: 'START', fn: () => game.startChallenge() });
-  }
 
-  Fizz.app = { sim, renderer, game, panel, setMode };
+  Fizz.app = { sim, renderer, game, panel };
 })(window.Fizz = window.Fizz || {});

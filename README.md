@@ -1,12 +1,12 @@
 # Fizz Lab
 
-A pouring game with real fizz physics: 8-bit graphics, and a carbonated-foam simulation that is not simple at all.
+A fizz lab: pour a drink in 8-bit graphics and watch a carbonated-foam simulation that is not simple at all.
 
-**Play it online:** <https://conar104.github.io/fizz-lab/>
+**Try it online:** <https://conar104.github.io/fizz-lab/>
 
 **Run it:** open `index.html` in a browser. If your browser blocks scripts on `file://` pages, run `node tools/serve.js` and visit <http://localhost:5173>.
 
-**Play:** pour each glass to the green line with a 3–15 mm head, then SERVE. Grab the bottle by its neck to move it and by its body to tip it, or hold **SPACE** (HOLD) / click **AUTO**. Drag the glass (or **← →**) to tilt it. Keys: **A** auto-pour, **I** ice, **M** Mentos, **S** stir, **U** stand the glass up, **C** clean the table, **R** reset, **P** pause, **[ ]** speed, **V** 3-D/section view, **H** HUD, **?** all shortcuts. Switch to **⚗ LAB** for every setting, one-click experiments, live charts and how the physics works; hover any control or readout to see the formula behind it.
+**Pour:** click the cap to pop it (or **O**), grab the bottle by its neck to move or shake it and by its body to tip it, or hold **SPACE** (HOLD) / click **AUTO**. Drag the glass (or **← →**) to tilt it. Keys: **A** auto-pour, **I** ice, **M** Mentos, **S** stir, **U** stand the glass up, **C** clean the table, **R** reset, **P** pause, **[ ]** speed, **V** 3-D/section view, **H** HUD, **?** all shortcuts. The side panel has every setting, one-click experiments, your achievements and how the physics works; the live charts and readouts sit under the glass. Hover any control or readout to see the formula behind it.
 
 ## Drinks and their carbonation
 
@@ -155,9 +155,9 @@ You don't set the flow rate directly. It comes out of the bottle's physics:
 - **Fizz cooling:** releasing CO₂ absorbs about 20 kJ/mol.
 - **Ice geometry:** the cubes pack in layers. The pack rests on the floor until Archimedes buoyancy exceeds its weight, then floats with draft `m/(ρA)`.
 
-### Play and lab
-- **PLAY** (the default) is the game: Perfect Pour, five random drinks, glasses and ice. Fill each to the green line with a 3–15 mm head, then SERVE; there are points for accuracy, speed and the head, and spills cost you. Its compact HUD shows the round and score, a little glass with the liquid and head against the target line, the head against its scoring band, the time, and spill warnings. Challenge messages appear above it. The side panel has the challenge, how to pour, and "Your pour" (AUTO rate, lip height, glass tilt).
-- **LAB** is the physics lab: every setup control, the experiments, the model, the charts, the readouts and the detailed HUD. Your choice is remembered.
+### The lab
+- One screen: the glass and bottle with the HUD over them, the live charts and every readout below, and a side panel with four tabs: **DRINK & GLASS** (every setting), **EXPERIMENTS** (one-click "what if" pours), **ACHIEVEMENTS** (how to pour, and the 15 things you can do to a soda) and **HOW IT WORKS** (the physics, with sources).
+- **Achievements** unlock as you play with the physics (a 6 cm head, a gusher popped like race-winner champagne, an ice cube flung out of the glass, a whole pour on the table…) and are remembered in your browser.
 - **Pour by hand:** grab the bottle by its **neck** to move it, or by its **body** to tip it about the lip. You set the angle; the bottle physics sets the flow, from a trickle to the glug limit, and the stream lands wherever its arc takes it. You can scroll over the bottle to tip it too. Let go and the hand rights it where it is: it stays there (so you can move it, then grab the body to tip it) until HOLD / SPACE or AUTO takes it over, or RESET puts it back. HOLD and AUTO work as before.
 - The painted window behind the HUD is hidden while a HUD is showing.
 
@@ -246,7 +246,7 @@ js/physics/table.js   drops and foam in flight, puddles on the table
 js/render/            pixel frame-buffer renderer (section view), render3d.js (ray-cast 3-D view and top-down inset), pixel charts
 js/ui/controls.js     data-driven control panel, drink picker and readouts
 js/ui/hud.js          on-screen HUD (temperatures, CO₂, head, fill, status)
-js/game/game.js       experiments, Perfect Pour challenge, achievements
+js/game/game.js       experiments and achievements
 js/main.js            wiring and the fixed-step loop (120 Hz physics, up to 64× speed)
 tools/serve.js        optional zero-dependency static server
 tests/                reference data, experimental validation and trend tests (node tests/run-all.js)

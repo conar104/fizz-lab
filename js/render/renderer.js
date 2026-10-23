@@ -308,7 +308,6 @@
         this._drawWalls(sim, F);
         this._drawRuns(sim, F);
         this._drawRuler(sim, F);
-        if (overlay && overlay.target != null) this._drawTarget(F, overlay.target, t);
       }
       if (this.view.mode !== '3d') this._drawStream(sim, F, t);   // (3-D draws it behind the glass)
       this._drawBottle(sim, F);
@@ -623,12 +622,6 @@
           this.px(Math.round(x), Math.round(y), k % 5 === 0 ? P.silver : P.slate);
         }
       }
-    }
-
-    _drawTarget(F, target, t) {
-      const Y = F.rowOf(target), k = Y - F.y0;
-      const on = Math.floor(t * 4) % 2 === 0;
-      for (let x = Math.floor(F.rowXa[k]) - 4; x <= F.rowXb[k] + 4; x++) if (((x >> 1) & 1) === 0) this.px(x, Y, on ? P.lime : P.green);
     }
 
     /** World point (tilt frame, metres) → screen pixel. */

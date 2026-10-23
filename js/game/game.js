@@ -1,4 +1,4 @@
-/* Fizz Lab — gamification: experiment presets, the "Perfect Pour" challenge, achievements. */
+/* Fizz Lab — experiment presets and achievements. */
 (function (Fizz) {
   'use strict';
   const { C, Simulation } = Fizz;
@@ -66,24 +66,19 @@
     { id: 'shaken', name: 'Shaken, Not Stirred', desc: 'Shake the bottle until it foams out of the neck.', test: (d) => d.bottleSpew > 5e-6 },
     { id: 'tablefizz', name: 'Table Volcano', desc: 'Get a Mentos or salt fizzing in a puddle on the table.', test: (d) => d.tableFrothing > 0 },
     { id: 'altitude', name: 'Thin Air', desc: 'Pour above 2 000 m.', test: (d, s) => d.poured > 1e-6 && s.params.pressure < 79.5 },
-    { id: 'perfect', name: 'Perfect Pour', desc: 'Score 900+ in a challenge round.', test: () => false },
   ];
 
   const STORE = 'fizzlab.v1';
   function load() { try { return JSON.parse(localStorage.getItem(STORE)) || {}; } catch (e) { return {}; } }
   function save(s) { try { localStorage.setItem(STORE, JSON.stringify(s)); } catch (e) { /* private mode */ } }
 
-  const rand = (a, b) => a + Math.random() * (b - a);
-  const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 
   class Game {
     constructor(sim, hooks) {
       this.sim = sim;
-      this.hooks = hooks;          // { toast, banner, onParamsChanged, lock }
+      this.hooks = hooks;          // { toast, banner, onParamsChanged, onAchievements }
       this.store = load();
       this.store.unlocked = this.store.unlocked || {};
-      this.store.best = this.store.best || 0;
-      this.challenge = null;
       this.maxHead = 0;
       this._pendingMentos = false;
       sim.on('reset', () => { this.maxHead = 0; });
@@ -97,11 +92,9 @@
       });
     }
 
-    get target() { return this.challenge ? this.challenge.target : null; }
 
     // --- experiments --------------------------------------------------
     runExperiment(ex) {
-      if (this.challenge) this.quitChallenge();
       Object.assign(this.sim.params, Simulation.DEFAULTS, ex.set);
       Game.matchCarbonation(this.sim.params, ex.set);
       this.sim.reset();
@@ -110,75 +103,6 @@
       this._pendingMentos = !!ex.mentos;
       this._pendingStir = !!ex.stir;
       this.hooks.banner(ex.name, ex.look);
-    }
-
-    // --- challenge ----------------------------------------------------
-    startChallenge() {
-      this.challenge = { round: 0, rounds: 5, total: 0, target: null, log: [] };
-      this.hooks.lock(true);
-      this.nextRound();
-    }
-
-    nextRound() {
-      const ch = this.challenge;
-      ch.round++;
-      if (ch.round > ch.rounds) return this._finish();
-      const p = this.sim.params;
-      Object.assign(p, Simulation.DEFAULTS, {
-        beverage: pick(Object.keys(Fizz.Props.BEVERAGES)),
-        material: pick(['glass', 'plastic', 'paper', 'styrofoam', 'ceramic', 'steel']),
-        cupDiameter: +rand(6, 10).toFixed(1),
-        cupHeight: +rand(9, 15).toFixed(1),
-        sodaTemp: +rand(3, 24).toFixed(0),
-        iceCubes: Math.random() < 0.45 ? (2 + Math.random() * 6) | 0 : 0,
-        pourRate: p.pourRate, pourHeight: p.pourHeight, tilt: p.tilt,
-      });
-      Game.matchCarbonation(p, { beverage: p.beverage });
-      this.sim.reset();
-      ch.target = this.sim.H * rand(0.6, 0.85);
-      this.hooks.onParamsChanged();
-      const bev = Fizz.Props.BEVERAGES[p.beverage].name, mat = Fizz.Props.SURFACES[p.material].name;
-      this.hooks.banner(`Round ${ch.round} / ${ch.rounds}`,
-        `${bev}, ${p.sodaTemp} °C, into a ${p.cupDiameter}×${p.cupHeight} cm ${mat.toLowerCase()} cup` +
-        `${p.iceCubes ? ` with ${p.iceCubes} ice cubes` : ''}. Fill the liquid to the green line, then SERVE. Pour rate, height and tilt are yours.`);
-    }
-
-    /** Score the current round. */
-    serve() {
-      const ch = this.challenge;
-      if (!ch || ch.target == null) return;
-      const d = this.sim.diagnostics();
-      const liquidTop = d.level + 0.25 * d.foamH;          // a quarter of the head settles to liquid
-      const errMm = Math.abs(liquidTop - ch.target) * 1000;
-      const accuracy = Math.max(0, 600 - errMm * 45);
-      const spillPenalty = Math.min(600, d.spilled * 1e6 * 15);
-      const elapsed = this.sim.stats.firstPour >= 0 ? this.sim.time - this.sim.stats.firstPour : 99;
-      const speed = Math.max(0, 250 - elapsed * 8);
-      const headMm = d.foamH * 1000;
-      const head = headMm >= 3 && headMm <= 15 ? 100 : 0;
-      const clean = d.spilled === 0 && d.poured > 0 ? 50 : 0;
-      const score = Math.max(0, Math.round(accuracy + speed + head + clean - spillPenalty));
-      ch.total += score;
-      ch.log.push(score);
-      ch.target = null;
-      if (score >= 900) this._unlock('perfect');
-      this.hooks.banner(`Round ${ch.round}: ${score} pts`,
-        `Off by ${errMm.toFixed(1)} mm (+${accuracy.toFixed(0)}) · speed +${speed.toFixed(0)} · ` +
-        `head ${headMm.toFixed(1)} mm (+${head}) · clean +${clean} · spill −${spillPenalty.toFixed(0)}. Total ${ch.total}.`,
-        { label: ch.round < ch.rounds ? 'NEXT ROUND' : 'FINISH', fn: () => this.nextRound() });
-    }
-
-    _finish() {
-      const ch = this.challenge;
-      const best = ch.total > this.store.best;
-      if (best) { this.store.best = ch.total; save(this.store); }
-      this.hooks.banner(`Challenge complete: ${ch.total}`, `${ch.log.join(' + ')}${best ? ' — NEW BEST!' : ` (best ${this.store.best})`}`);
-      this.quitChallenge();
-    }
-
-    quitChallenge() {
-      this.challenge = null;
-      this.hooks.lock(false);
     }
 
     // --- achievements -------------------------------------------------

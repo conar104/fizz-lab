@@ -73,7 +73,6 @@
     this._drawRim3d(sim, F, PX, 'front');
     this._drawSpoon3d(sim, F, PX);
     this._drawPiles3d(sim, F, PX, true, t);                      // and in front of it last
-    if (overlay && overlay.target != null) this._drawTarget3d(sim, F, PX, overlay.target, t);
     this._drawRuns(sim, F);
     this._drawRuler(sim, F);
   };
@@ -484,18 +483,6 @@
       for (let Y = Math.round(yTopF); Y <= Math.round(yBotF); Y++) for (let X = Math.round(xl); X <= Math.round(xr); X++) {
         this.px(X, Y, X === Math.round(xl) || Y === Math.round(yTopF) ? P.iceEdge : X === Math.round(xr) || Y === Math.round(yBotF) ? P.iceShade : P.ice);
       }
-    }
-  };
-
-  /** The challenge's target level, as a dashed ellipse around the glass. */
-  Rp._drawTarget3d = function (sim, F, PX, target, t) {
-    const R = sim.D / 2 * PX, v = target * PX, on = Math.floor(t * 4) % 2 === 0;
-    const n = Math.ceil(2 * Math.PI * R * 2);
-    for (let k = 0; k < n; k++) {
-      if ((k >> 2) & 1) continue;
-      const a = k / n * 2 * Math.PI;
-      const [X, Y] = F.proj(R * Math.cos(a), v, R * Math.sin(a));
-      this.px(Math.round(X), Math.round(Y), on ? P.lime : P.green);
     }
   };
 
