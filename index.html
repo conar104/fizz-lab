@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=2026-10-23a">
+  <link rel="stylesheet" href="css/style.css?v=2026-10-23b">
 </head>
 <body>
   <header class="top">
@@ -79,7 +79,6 @@
           <button id="btn-upright" title="Stand the glass back up (or double-click it)">UPRIGHT <kbd>U</kbd></button>
           <button id="btn-clean" title="Wipe the table: puddles, foam, spilled ice. The glass is left as it is.">CLEAN TABLE <kbd>C</kbd></button>
           <button id="btn-reset" class="reset" title="Empty the glass, clean the table, refill the bottle — same setup">RESET <kbd>R</kbd></button>
-          <button id="btn-defaults" title="Put every setting back to the defaults and start over">DEFAULTS</button>
         </div>
       </div>
 
@@ -91,29 +90,43 @@
         <button id="btn-view" title="Switch between the 3-D view and the flat cross-section">3D <kbd>V</kbd></button>
       </div>
 
-      <section class="instruments" aria-label="Instruments">
-        <div id="keystats" class="keystats"></div>
-        <div class="charts">
-          <figure>
-            <figcaption class="chart-title">IN THE GLASS <span>height, mm</span></figcaption>
-            <canvas id="chart-height"></canvas>
-            <div class="legend" id="legend-height"></div>
-          </figure>
-          <figure>
-            <figcaption class="chart-title">CO₂ IN THE DRINK <span>g/L</span></figcaption>
-            <canvas id="chart-co2"></canvas>
-            <div class="legend" id="legend-co2"></div>
-          </figure>
-          <figure>
-            <figcaption class="chart-title">TEMPERATURE <span>°C</span></figcaption>
-            <canvas id="chart-temp"></canvas>
-            <div class="legend" id="legend-temp"></div>
-          </figure>
+      <section class="instruments" aria-label="What is happening">
+        <nav class="tabs dtabs" id="dtabs" aria-label="How much detail">
+          <button data-d="basic" class="on">THE BASICS</button>
+          <button data-d="trends">TRENDS</button>
+          <button data-d="nerd">NERD STATS</button>
+        </nav>
+        <div class="dpane" id="d-basic">
+          <div id="basics" class="basics"></div>
         </div>
-        <details class="allnums">
-          <summary>ALL THE NUMBERS <span>every readout, with the formula behind it (hover a row)</span></summary>
+        <div class="dpane" id="d-trends" hidden>
+          <p class="dhint">How the pour plays out over time. The last 60 seconds scroll by; hover a line's legend for its value now.</p>
+          <div class="charts">
+            <figure>
+              <figcaption class="chart-title">IN THE GLASS <span>height, mm</span></figcaption>
+              <canvas id="chart-height"></canvas>
+              <div class="legend" id="legend-height"></div>
+              <p class="chart-note">The foam top racing ahead of the liquid is the head growing. Past the orange rim line, it spills.</p>
+            </figure>
+            <figure>
+              <figcaption class="chart-title">CO₂ IN THE DRINK <span>g/L</span></figcaption>
+              <canvas id="chart-co2"></canvas>
+              <div class="legend" id="legend-co2"></div>
+              <p class="chart-note">The fizz you have left. It can only fall toward the "flat" level for this temperature; ice and cold slow it.</p>
+            </figure>
+            <figure>
+              <figcaption class="chart-title">TEMPERATURE <span>°C</span></figcaption>
+              <canvas id="chart-temp"></canvas>
+              <div class="legend" id="legend-temp"></div>
+              <p class="chart-note">Warmer soda holds less CO₂, so it foams more and goes flat faster.</p>
+            </figure>
+          </div>
+        </div>
+        <div class="dpane" id="d-nerd" hidden>
+          <p class="dhint">Everything the model computes. Hover any row for the formula and the source behind it.</p>
+          <div id="keystats" class="keystats"></div>
           <div id="readouts" class="readouts"></div>
-        </details>
+        </div>
       </section>
     </section>
 
@@ -127,8 +140,9 @@
       <p class="tab-desc" id="tab-desc"></p>
 
       <div class="tab" id="tab-setup">
-        <p class="hint">Changing the drink or the glass starts a fresh glass. Everything marked ⚡, and ice, Mentos, salt and the spoon, act live on the glass you have. Hover any setting for the physics behind it.</p>
+        <p class="hint">A new drink or glass starts a fresh pour; settings marked ⚡ change the glass you have. Hover any setting for the physics behind it.</p>
         <div id="controls"></div>
+        <div class="setup-foot"><button id="btn-defaults" title="Put every setting back to the defaults and start over">↺ ALL SETTINGS BACK TO DEFAULTS</button></div>
       </div>
 
       <div class="tab" id="tab-experiments" hidden>
@@ -188,27 +202,27 @@
     </aside>
   </main>
 
-  <script src="js/core/util.js?v=2026-10-23a"></script>
-  <script src="js/physics/constants.js?v=2026-10-23a"></script>
-  <script src="js/physics/properties.js?v=2026-10-23a"></script>
-  <script src="js/physics/nucleation.js?v=2026-10-23a"></script>
-  <script src="js/physics/jet.js?v=2026-10-23a"></script>
-  <script src="js/physics/bubbles.js?v=2026-10-23a"></script>
-  <script src="js/physics/foam.js?v=2026-10-23a"></script>
-  <script src="js/physics/ice.js?v=2026-10-23a"></script>
-  <script src="js/physics/capillary.js?v=2026-10-23a"></script>
-  <script src="js/physics/tilt.js?v=2026-10-23a"></script>
-  <script src="js/physics/bottle.js?v=2026-10-23a"></script>
-  <script src="js/physics/slosh.js?v=2026-10-23a"></script>
-  <script src="js/physics/table.js?v=2026-10-23a"></script>
-  <script src="js/physics/stream.js?v=2026-10-23a"></script>
-  <script src="js/physics/simulation.js?v=2026-10-23a"></script>
-  <script src="js/render/renderer.js?v=2026-10-23a"></script>
-  <script src="js/render/render3d.js?v=2026-10-23a"></script>
-  <script src="js/render/charts.js?v=2026-10-23a"></script>
-  <script src="js/ui/controls.js?v=2026-10-23a"></script>
-  <script src="js/ui/hud.js?v=2026-10-23a"></script>
-  <script src="js/game/game.js?v=2026-10-23a"></script>
-  <script src="js/main.js?v=2026-10-23a"></script>
+  <script src="js/core/util.js?v=2026-10-23b"></script>
+  <script src="js/physics/constants.js?v=2026-10-23b"></script>
+  <script src="js/physics/properties.js?v=2026-10-23b"></script>
+  <script src="js/physics/nucleation.js?v=2026-10-23b"></script>
+  <script src="js/physics/jet.js?v=2026-10-23b"></script>
+  <script src="js/physics/bubbles.js?v=2026-10-23b"></script>
+  <script src="js/physics/foam.js?v=2026-10-23b"></script>
+  <script src="js/physics/ice.js?v=2026-10-23b"></script>
+  <script src="js/physics/capillary.js?v=2026-10-23b"></script>
+  <script src="js/physics/tilt.js?v=2026-10-23b"></script>
+  <script src="js/physics/bottle.js?v=2026-10-23b"></script>
+  <script src="js/physics/slosh.js?v=2026-10-23b"></script>
+  <script src="js/physics/table.js?v=2026-10-23b"></script>
+  <script src="js/physics/stream.js?v=2026-10-23b"></script>
+  <script src="js/physics/simulation.js?v=2026-10-23b"></script>
+  <script src="js/render/renderer.js?v=2026-10-23b"></script>
+  <script src="js/render/render3d.js?v=2026-10-23b"></script>
+  <script src="js/render/charts.js?v=2026-10-23b"></script>
+  <script src="js/ui/controls.js?v=2026-10-23b"></script>
+  <script src="js/ui/hud.js?v=2026-10-23b"></script>
+  <script src="js/game/game.js?v=2026-10-23b"></script>
+  <script src="js/main.js?v=2026-10-23b"></script>
 </body>
 </html>

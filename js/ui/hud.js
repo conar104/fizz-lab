@@ -18,10 +18,10 @@
       this.root = root;
       root.innerHTML = `
         <div class="hud-row"><span class="hud-k">SODA</span><span class="hud-v" data-k="soda"></span><i class="bar"><b data-b="soda"></b></i></div>
-        <div class="hud-row"><span class="hud-k">CUP</span><span class="hud-v" data-k="cup"></span><i class="bar"><b data-b="cup"></b></i></div>
-        <div class="hud-row"><span class="hud-k">ICE</span><span class="hud-v" data-k="ice"></span></div>
-        <div class="hud-row"><span class="hud-k">CO₂</span><span class="hud-v" data-k="co2"></span><i class="bar"><b data-b="co2"></b><u data-m="sat"></u></i></div>
-        <div class="hud-row"><span class="hud-k">FIZZ</span><span class="hud-v" data-k="fizz"></span></div>
+        <div class="hud-row hud-adv"><span class="hud-k">CUP</span><span class="hud-v" data-k="cup"></span><i class="bar"><b data-b="cup"></b></i></div>
+        <div class="hud-row hud-adv"><span class="hud-k">ICE</span><span class="hud-v" data-k="ice"></span></div>
+        <div class="hud-row hud-adv"><span class="hud-k">CO₂</span><span class="hud-v" data-k="co2"></span><i class="bar"><b data-b="co2"></b><u data-m="sat"></u></i></div>
+        <div class="hud-row hud-adv"><span class="hud-k">FIZZ</span><span class="hud-v" data-k="fizz"></span></div>
         <div class="hud-row"><span class="hud-k">HEAD</span><span class="hud-v" data-k="head"></span><i class="bar"><b data-b="head"></b></i></div>
         <div class="hud-row"><span class="hud-k">POUR</span><span class="hud-v" data-k="pour"></span><i class="bar"><b data-b="pour"></b></i></div>
         <div class="hud-row"><span class="hud-k">FILL</span><span class="hud-v" data-k="fill"></span><i class="bar"><b data-b="fill"></b></i></div>
@@ -31,6 +31,9 @@
       root.querySelectorAll('[data-b]').forEach(el => { this.b[el.dataset.b] = el; });
       root.querySelectorAll('[data-m]').forEach(el => { this.m[el.dataset.m] = el; });
     }
+
+    /** 'basic' shows the four rows you watch while pouring; 'full' shows them all. */
+    setLevel(level) { this.root.classList.toggle('hud-basic', level === 'basic'); }
 
     _set(k, text) { if (this.v[k].textContent !== text) this.v[k].textContent = text; }
     _bar(k, frac, color) {

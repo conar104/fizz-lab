@@ -87,6 +87,63 @@
     { id: 'temp', label: 'SODA', get: d => [`${d.Tliq.toFixed(1)} °C`, d.iceCount ? `${d.iceCount} cubes, melting ${(d.meltRate * 6e4).toFixed(1)} g/min` : 'no ice',
       d.Tliq < 4 ? 'cold' : d.Tliq > 15 ? 'warn' : 'good'] },
   ];
+  // --- THE BASICS: plain-language gauges --------------------------------------
+  const mlTxt = (v) => `${Math.round(v * 1e6)} ml`;
+  const BASICS = [
+    { id: 'fill', label: 'IN THE GLASS', get: (d) => {
+      const cap = sim.A * sim.H, f = d.volume / cap;
+      return [mlTxt(d.volume), d.volume < 1e-6 ? (sim.bottle.sealed ? 'empty: pop the cap and pour' : sim.bottle.Q > 0 || sim.stream.flyingV > 0 ? 'filling…' : 'empty: pour some in') : `of ${mlTxt(cap)} · ${Math.round(100 * f)} % full`, f, '#a7f070'];
+    } },
+    { id: 'head', label: 'FOAM HEAD', get: (d) => {
+      const mm = d.foamH * 1000, over = d.foamTop > sim.H;
+      const word = over ? 'over the rim!' : mm > 25 ? 'towering' : mm > 15 ? 'tall' : mm > 3 ? 'a nice head' : mm > 0.5 ? 'a thin one' : 'no foam';
+      return [`${mm.toFixed(0)} mm`, word, Math.min(1, mm / 40), over ? '#b13e53' : '#f7ecd2'];
+    } },
+    { id: 'fizz', label: 'FIZZ LEFT', get: (d) => {
+      const f = d.cVol / Math.max(sim.params.carbonation, 0.01);
+      const word = d.volume < 1e-6 ? 'still in the bottle' : d.S > 1 ? 'fizzing hard' : d.S > 0.15 ? 'gently fizzing' : d.cVol > Simulation.FLAT_VOLUMES ? 'calm, but still has bite' : 'flat';
+      return [`${Math.round(100 * Math.min(1, f))} %`, word, f, d.S > 0.15 ? '#41a6f6' : '#566c86'];
+    } },
+    { id: 'temp', label: 'TEMPERATURE', get: (d) => {
+      const T = d.volume > 1e-7 ? d.Tliq : sim.params.sodaTemp;
+      const word = T < 4 ? 'ice cold' : T < 10 ? 'cold' : T < 18 ? 'cool' : T < 26 ? 'room temperature' : 'warm';
+      return [`${T.toFixed(1)} °C`, word + (d.iceCount ? ` · ${d.iceCount} ice cube${d.iceCount > 1 ? 's' : ''}` : ''), (T + 2) / 42,
+        T < 4 ? '#73eff7' : T < 12 ? '#41a6f6' : T < 24 ? '#ffcd75' : '#ef7d57'];
+    } },
+    { id: 'mess', label: 'ON THE TABLE', get: (d) => {
+      const v = (d.puddleV || 0) + (d.flying || 0), cubes = d.iceOnTable || 0;
+      const word = v < 0.5e-6 ? 'clean' : v < 10e-6 ? 'a few drops' : v < 100e-6 ? 'a puddle' : 'a flood';
+      return [mlTxt(v), word + (cubes ? ` · ${cubes} ice cube${cubes > 1 ? 's' : ''}` : ''), Math.min(1, v / 300e-6), '#ef7d57'];
+    } },
+    { id: 'bottle', label: 'THE BOTTLE', get: (d) => {
+      const B = sim.bottle, f = B.V / B.type.fill;
+      const word = B.sealed ? `cap on · ${((B.P - 101325) / 1e5).toFixed(1)} bar inside` : B.V < 1e-6 ? 'empty' : B.Q > 0 ? `pouring ${Math.round(B.Q * 1e6)} ml/s` : 'open';
+      return [mlTxt(B.V), word, f, '#41a6f6'];
+    } },
+  ];
+  $('basics').innerHTML = BASICS.map(k => `<div class="gauge" data-key="${k.id}"><span class="key-label">${k.label}</span><b class="key-val"></b><i class="gbar"><b></b></i><span class="key-note"></span></div>`).join('');
+  const basicEls = BASICS.map(k => { const el = $('basics').querySelector(`[data-key="${k.id}"]`); return { k, val: el.querySelector('.key-val'), note: el.querySelector('.key-note'), bar: el.querySelector('.gbar b') }; });
+  const updateBasics = (d) => {
+    for (const { k, val, note, bar } of basicEls) {
+      let r; try { r = k.get(d); } catch (e) { r = ['—', '', 0, '#566c86']; }
+      if (val.textContent !== r[0]) val.textContent = r[0];
+      if (note.textContent !== r[1]) note.textContent = r[1];
+      bar.style.width = `${(Math.max(0, Math.min(1, r[2])) * 100).toFixed(1)}%`; bar.style.background = r[3];
+    }
+  };
+
+  // --- how much detail: THE BASICS / TRENDS / NERD STATS ------------------------
+  let dataTab = 'basic';
+  const setDataTab = (t) => {
+    dataTab = t;
+    for (const b of $('dtabs').children) b.classList.toggle('on', b.dataset.d === t);
+    for (const id of ['basic', 'trends', 'nerd']) $('d-' + id).hidden = id !== t;
+    hud.setLevel(t === 'basic' ? 'basic' : 'full');
+    try { localStorage.setItem('fizzlab.dataTab', t); } catch (e) { /* ignore */ }
+    if (t === 'trends') requestAnimationFrame(() => { charts.height.draw(sim.history); charts.co2.draw(sim.history); charts.temp.draw(sim.history); });
+  };
+  $('dtabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setDataTab(b.dataset.d); });
+
   $('keystats').innerHTML = KEYS.map(k => `<div class="key" data-key="${k.id}"><span class="key-label">${k.label}</span><b class="key-val"></b><span class="key-note"></span></div>`).join('');
   const keyEls = KEYS.map(k => { const el = $('keystats').querySelector(`[data-key="${k.id}"]`); return { k, el, val: el.querySelector('.key-val'), note: el.querySelector('.key-note') }; });
   const updateKeys = (d) => {
@@ -415,20 +472,25 @@
     if (uiTimer > 0.15) {
       uiTimer = 0;
       const d = sim.diagnostics();
-      readouts.update(d);
       if (hudOn) hud.update(sim, d);
-      updateKeys(d);
+      if (dataTab === 'basic') updateBasics(d);
+      if (dataTab === 'nerd') { updateKeys(d); readouts.update(d); }
       game.check(d);
       $('clock').textContent = `t = ${sim.time.toFixed(1)} s${paused ? ' · paused' : ''}`;
       saveParams();
     }
     if (chartTimer > 0.25) {
       chartTimer = 0;
-      charts.height.draw(sim.history); charts.co2.draw(sim.history); charts.temp.draw(sim.history);
+      if (dataTab === 'trends') { charts.height.draw(sim.history); charts.co2.draw(sim.history); charts.temp.draw(sim.history); }
     }
   }
   requestAnimationFrame(frame);
 
 
-  Fizz.app = { sim, renderer, game, panel };
+  // start on the detail level you left on (THE BASICS the first time)
+  let savedTab = 'basic';
+  try { savedTab = localStorage.getItem('fizzlab.dataTab') || 'basic'; } catch (e) { /* ignore */ }
+  setDataTab(['basic', 'trends', 'nerd'].includes(savedTab) ? savedTab : 'basic');
+
+  Fizz.app = { sim, renderer, game, panel, setDataTab };
 })(window.Fizz = window.Fizz || {});

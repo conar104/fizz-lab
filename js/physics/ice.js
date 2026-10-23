@@ -273,11 +273,21 @@
         const lzc = lanes[Math.min(c.lane, lanes.length - 1)].z;
         const lu = f > 0 && ctx.liquidU ? ctx.liquidU(c.u, lzc) : 0;
         const speed = Math.hypot(c.wu - lu, c.wv);
+        // confinement: a cube moving up or down in a crowded glass has to push the drink
+        // past it through the gaps beside it (a piston in a cylinder). The drag of a
+        // blocked channel grows as 1/(1 − β)², β the share of the glass's width the
+        // cubes at this height fill (wall-effect / blockage correction; capped).
+        const half = lanes[Math.min(c.lane, lanes.length - 1)].half;
+        let wide = 0;
+        for (const q of this.cubes) if (q.where === 'cup' && q.lane === c.lane && Math.abs(q.v - c.v) < 0.5 * (q.a + c.a)) wide += q.a;
+        const beta = Math.min(0.9, wide / Math.max(2 * half, 1e-3));
+        const confine = f > 0 ? 1 / ((1 - beta) * (1 - beta)) : 1;
         const drag = 0.5 * (rhoL * f + RHO_AIR * (1 - f)) * CD_CUBE * c.a * c.a * speed / c.m;
+        const dragV = drag * confine;                            // (the sideways motion is not squeezed the same way)
         // effective gravity in the swinging cup: g − (α×r − ω²r), r from the pivot
         const ru = c.u - fr.pivot[0], rv = c.v - fr.pivot[1];
         const gu = g0u - (-Al * rv - W * W * ru), gv = g0v - (Al * ru - W * W * rv);
-        let au = gu * lift - drag * (c.wu - lu) + 2 * W * c.wv, av = gv * lift - drag * c.wv - 2 * W * c.wu;   // + Coriolis
+        let au = gu * lift - drag * (c.wu - lu) + 2 * W * c.wv, av = gv * lift - 2 * W * c.wu;   // + Coriolis
         if (c.v - c.a / 2 > ctx.H) {                             // heaped above the rim: slumps outward
           const side = tilt.sin > 0.05 ? -1 : (c.u >= 0 ? 1 : -1);
           au += side * SLUMP * C.G;
@@ -286,6 +296,7 @@
         const mEff = c.m + C_ADDED * rhoL * c.a ** 3 * f;
         au *= c.m / mEff; av *= c.m / mEff;
         c.wu += au * dt; c.wv += av * dt;
+        c.wv /= 1 + dragV * dt;                                  // vertical drag, implicit (stable at any step)
         if (f > 0 && f < 1) {
           // floating: heave and sway damped linearly (implicit, stable at any dt)
           const k = rhoL * Math.hypot(gu, gv) * c.a * c.a;
@@ -293,7 +304,6 @@
           c.wv /= 1 + b / mEff * dt;
           c.wu = lu + (c.wu - lu) / (1 + dt / TAU_SWAY);
         }
-        c.u += c.wu * dt; c.v += c.wv * dt;
         c.below = c.above = false;
         // the spoon: a rod from just off the floor to above the rim, moving on its circle
         const sp = ctx.spoon;
@@ -306,11 +316,44 @@
           }
         }
       }
+      // Cubes resting on each other move together vertically: the upper one's weight
+      // loads the ones under it (a contact force, not just a push out of the way),
+      // so a stack has a real resting height, and the wave-radiation damping of its
+      // waterline cubes acts on all of it. Their vertical momentum is pooled
+      // (mass-weighted with each cube's added mass: momentum is conserved and the
+      // relative motion is taken out, as in a perfectly inelastic contact), unless
+      // the upper one is lifting clear.
+      const cupNow = this.cubes.filter(c => c.where === 'cup');
+      {
+        const cup = cupNow;
+        const group = new Map(), find = (c) => { while (group.get(c) !== c) c = group.get(c); return c; };
+        for (const c of cup) group.set(c, c);
+        for (const c of cup) for (const b of c._sup || []) if (c.wv - b.wv < 0.05) group.set(find(c), find(b));
+        const sums = new Map(), gAbs = Math.hypot(g0u, g0v);
+        for (const c of cup) {
+          const r = find(c), m = c.m + C_ADDED * rhoL * c.a ** 3 * (c.sub || 0);
+          const t = sums.get(r) || { p: 0, m: 0, n: 0, k: 0 }; t.p += m * c.wv; t.m += m; t.n++;
+          if (c.sub > 0 && c.sub < 1) t.k += rhoL * gAbs * c.a * c.a;   // its waterline: the stack's heave stiffness
+          sums.set(r, t);
+        }
+        for (const c of cup) {
+          const t = sums.get(find(c));
+          if (t.n > 1) {
+            // the stack heaves as one body, damped as a floating body is (wave radiation,
+            // ζ ≈ 0.2) with its whole mass and whole waterline, implicitly
+            const b = 2 * ZETA_HEAVE * Math.sqrt(t.k * t.m);
+            c.wv = (t.p / t.m) / (1 + b / t.m * dt);
+          }
+        }
+      }
+      // now move them (with the pooled velocities, so position always follows velocity)
+      for (const c of cupNow) { c.u += c.wu * dt; c.v += c.wv * dt; }
       // Contacts (position-based, a few sweeps). Cubes are visited bottom-up and a
       // vertical overlap moves only the UPPER cube: the lower one is already held
       // by the floor or the cubes beneath it, so a tall stack never squeezes into
       // itself (splitting overlaps evenly would let a heap sink into the pile).
       const cup = this.cubes.filter(c => c.where === 'cup');
+      for (const c of cup) c._sup = [];                            // who holds whom up, found afresh
       for (let it = 0; it < 4; it++) {
         cup.sort((p, q) => p.v - q.v);
         for (const c of cup) {
@@ -338,6 +381,7 @@
               if (top.wv < wv) top.wv = wv;
               if (bot.wv > wv) bot.wv = wv;
               top.below = true; bot.above = true;
+              top._sup.includes(bot) || top._sup.push(bot);
             } else {
               const sgn = du > 0 ? 1 : -1;
               p.u -= sgn * ou * 0.5; q.u += sgn * ou * 0.5;

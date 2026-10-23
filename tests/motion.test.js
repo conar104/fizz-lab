@@ -702,6 +702,28 @@ section('Time-lapse, flings and spills from the player\'s side');
 }
 
 // ---------------------------------------------------------------------------
+section('Floating ice comes to rest, even stacked');
+{
+  // A glass crowded with ice (cubes stacked two and three high) must settle: the
+  // upper cubes' weight loads the ones under them, the stack is damped as one
+  // floating body, and the drink squeezing past crowded cubes drags on them.
+  const settle = (opts) => {
+    seed(3);
+    const sim = new Simulation(Object.assign({ beverage: 'cola' }, opts));
+    sim.openBottle(); sim.startPour(true);
+    for (let i = 0; i < 45 * 120; i++) sim.step(1 / 120);
+    const cubes = sim.ice.cubes.filter(c => c.where === 'cup');
+    const lo = cubes.map(c => c.v), hi = cubes.map(c => c.v);
+    for (let i = 0; i < 4 * 120; i++) { sim.step(1 / 120); cubes.forEach((c, k) => { lo[k] = Math.min(lo[k], c.v); hi[k] = Math.max(hi[k], c.v); }); }
+    return Math.max(...hi.map((h, k) => h - lo[k]));
+  };
+  const stacked = settle({ iceCubes: 12, pourAmount: 300 }), wide = settle({ iceCubes: 8, pourAmount: 400, cupDiameter: 8.5, cupHeight: 15 });
+  expect('a glass crowded with stacked ice stops bobbing (no cube moves more than half a millimetre after 45 s)',
+    stacked < 0.5e-3 && wide < 0.5e-3, `largest up-and-down over 4 s: 12 stacked cubes ${(stacked * 1000).toFixed(2)} mm, 8 cubes in a pint ${(wide * 1000).toFixed(2)} mm`,
+    'weight transfer through contacts, stack heave damping (ζ 0.2), blockage drag 1/(1 − β)²');
+}
+
+// ---------------------------------------------------------------------------
 section('The glass, the table and the bottle are separate systems');
 {
   // Two identical runs; in one, everything is thrown at the glass. A puddle away
